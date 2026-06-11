@@ -5,17 +5,21 @@ import { Vec } from './geometry';
 import { Layout, POCKETS } from './table';
 import { SkillProfile } from './skill';
 import { Pattern } from './solver';
-import { zoneContext, zonePeak, zonePolygon } from './zone';
+import { zoneContext, zonePeak, zonePolygons } from './zone';
 import { Scene } from './render';
 
-function polygonArea(poly: Vec[]): number {
-  let a = 0;
-  for (let i = 0; i < poly.length; i++) {
-    const p = poly[i];
-    const q = poly[(i + 1) % poly.length];
-    a += p.x * q.y - q.x * p.y;
+function polygonArea(polys: Vec[][]): number {
+  let total = 0;
+  for (const poly of polys) {
+    let a = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i];
+      const q = poly[(i + 1) % poly.length];
+      a += p.x * q.y - q.x * p.y;
+    }
+    total += Math.abs(a) / 2;
   }
-  return Math.abs(a) / 2;
+  return total;
 }
 
 /**
@@ -32,7 +36,7 @@ export function sceneForStep(
   if (s === 0) {
     return {
       balls: layout.balls,
-      zone: null,
+      zone: [],
       altZones: [],
       shot: null,
       ghostPaths: [],
@@ -42,7 +46,7 @@ export function sceneForStep(
   if (s === 1) {
     return {
       balls: layout.balls,
-      zone: null,
+      zone: [],
       altZones: [],
       shot: null,
       ghostPaths: shots.flatMap((sh) => (sh.path ? [sh.path] : [])),
@@ -52,8 +56,8 @@ export function sceneForStep(
   const k = s - 1; // shot number, 1-based
   const shot = shots[k - 1];
   const next = shots[k] ?? null;
-  let zone = null;
-  const altZones = [];
+  let zone: Vec[][] = [];
+  const altZones: Vec[][] = [];
   if (next) {
     const later = layout.balls.slice(k + 1).map((b) => b.pos);
     // Zones of the ball after `next`: the displayed zone keeps only cue
@@ -70,22 +74,22 @@ export function sceneForStep(
     // stretch can reach (windowRef): the drawn window is the stretch the
     // route is playing for, and the planned landing sits inside it.
     const cap = shot.windowRef ?? Infinity;
-    zone = zonePolygon(primary, skill, 0, 85, cap);
+    zone = zonePolygons(primary, skill, 0, 85, cap);
     // The best other pocket expands the window, but as a second choice held
     // to the primary pocket's quality bar; showing every pocket's zone would
     // bury the primary one in noise.
     const bar = Math.min(zonePeak(primary, skill), cap);
-    let bestAlt: Vec[] | null = null;
+    let bestAlt: Vec[][] | null = null;
     for (const p of POCKETS) {
       if (p.id === next.pocket.id) continue;
-      const poly = zonePolygon(
+      const polys = zonePolygons(
         zoneContext(next.ball.pos, p, later, nextZones), skill, bar, 85, cap,
       );
-      if (poly.length >= 3 && (!bestAlt || polygonArea(poly) > polygonArea(bestAlt))) {
-        bestAlt = poly;
+      if (polys.length > 0 && (!bestAlt || polygonArea(polys) > polygonArea(bestAlt))) {
+        bestAlt = polys;
       }
     }
-    if (bestAlt) altZones.push(bestAlt);
+    if (bestAlt) altZones.push(...bestAlt);
   }
   return {
     balls: layout.balls.slice(k - 1),

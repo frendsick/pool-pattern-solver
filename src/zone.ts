@@ -288,13 +288,16 @@ export function zoneBar(
 }
 
 /**
- * Build a drawable pie-shaped polygon for the zone: rays fanned around the
+ * Build drawable pie-shaped polygons for the zone: rays fanned around the
  * "straight in" direction (opposite the aim line), each clipped to its first
- * good run. Rail-band positions that would cue away from the near rail are
- * excluded (railExcluded — along-the-rail shots keep them); if that leaves
- * nothing, the awkward band is reluctantly readmitted.
+ * good run. A ray with no good point at all (e.g. the whole direction sits in
+ * another ball's shadow) splits the pie — the window must not bridge across a
+ * wedge it cannot actually use, so each contiguous run of good rays becomes
+ * its own polygon. Rail-band positions that would cue away from the near rail
+ * are excluded (railExcluded — along-the-rail shots keep them); if that
+ * leaves nothing, the awkward band is reluctantly readmitted.
  */
-export function zonePolygon(
+export function zonePolygons(
   z: ZoneContext,
   skill: SkillProfile,
   reference = 0,
@@ -302,12 +305,12 @@ export function zonePolygon(
   // drawn window must not clip them on the radius alone.
   maxRadius = 85,
   cap = Infinity,
-): Vec[] {
+): Vec[][] {
   if (!z.ballPathClear) return [];
   const minValue = zoneBar(z, skill, reference, cap);
   return (
-    buildPie(z, skill, minValue, maxRadius, true) ??
-    buildPie(z, skill, minValue, maxRadius, false) ??
+    buildPies(z, skill, minValue, maxRadius, true) ??
+    buildPies(z, skill, minValue, maxRadius, false) ??
     []
   );
 }
@@ -330,13 +333,13 @@ function scanFan(
   }
 }
 
-function buildPie(
+function buildPies(
   z: ZoneContext,
   skill: SkillProfile,
   minValue: number,
   maxRadius: number,
   excludeRailBand: boolean,
-): Vec[] | null {
+): Vec[][] | null {
   const aimBack = rayDir(z); // direction away from pocket
   const halfFan = Math.min(skill.maxCut, (78 * Math.PI) / 180);
   // Finer than the scanFan grid: the outline must not clip a corner the
@@ -345,8 +348,14 @@ function buildPie(
   const inner = 2 * BALL_R + 0.3;
   const ghost = zoneGhost(z);
 
-  const outerArc: Vec[] = [];
-  const innerArc: Vec[] = [];
+  const pies: Vec[][] = [];
+  let outerArc: Vec[] = [];
+  let innerArc: Vec[] = [];
+  const flush = () => {
+    if (outerArc.length >= 2) pies.push([...outerArc, ...innerArc.reverse()]);
+    outerArc = [];
+    innerArc = [];
+  };
   for (let i = 0; i <= steps; i++) {
     const phi = -halfFan + (2 * halfFan * i) / steps;
     const dir = rotate(aimBack, phi);
@@ -368,10 +377,12 @@ function buildPie(
     if (firstGood !== null && lastGood !== null) {
       outerArc.push(add(z.ball, scale(dir, lastGood)));
       innerArc.push(add(z.ball, scale(dir, firstGood)));
+    } else {
+      flush(); // dead direction: the window must not bridge across it
     }
   }
-  if (outerArc.length < 2) return null;
-  return [...outerArc, ...innerArc.reverse()];
+  flush();
+  return pies.length > 0 ? pies : null;
 }
 
 function rayDir(z: ZoneContext): Vec {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { vec, add, scale, rotate } from '../src/geometry';
 import { pocketById, POCKETS, BALL_R, TABLE_W, TABLE_H } from '../src/table';
-import { zoneContext, zoneValue, zonePolygon, railAway, railExcluded, RAIL_MARGIN } from '../src/zone';
+import { zoneContext, zoneValue, zonePolygons, railAway, railExcluded, RAIL_MARGIN } from '../src/zone';
 import { shotGeometry, departureDir, ShotType } from '../src/shots';
 import { INTERMEDIATE } from '../src/skill';
 
@@ -20,7 +20,7 @@ describe('position zone', () => {
   it('zero when the ball-to-pocket line is blocked', () => {
     const zc = zoneContext(ball, ts, [vec(50, 35)]);
     expect(zoneValue(vec(50, 10), zc, INTERMEDIATE)).toBe(0);
-    expect(zonePolygon(zc, INTERMEDIATE)).toHaveLength(0);
+    expect(zonePolygons(zc, INTERMEDIATE)).toHaveLength(0);
   });
 
   it('zero on the wrong side (no shot past max cut)', () => {
@@ -39,7 +39,7 @@ describe('position zone', () => {
 
   it('builds a pie polygon for an open zone', () => {
     const zc = zoneContext(ball, ts, []);
-    const poly = zonePolygon(zc, INTERMEDIATE);
+    const poly = zonePolygons(zc, INTERMEDIATE).flat();
     expect(poly.length).toBeGreaterThan(10);
     // every vertex below the ball (the shooting side for a top-side pot)
     for (const p of poly) expect(p.y).toBeLessThan(ball.y);
@@ -48,7 +48,7 @@ describe('position zone', () => {
   it('keeps the drawn zone out of the rail band where the shot cues away from the rail', () => {
     // Pot straight up the table: every band position cues toward center.
     const zc = zoneContext(ball, ts, []);
-    const poly = zonePolygon(zc, INTERMEDIATE);
+    const poly = zonePolygons(zc, INTERMEDIATE).flat();
     const minRail = (p: { x: number; y: number }) =>
       Math.min(p.x - BALL_R, TABLE_W - BALL_R - p.x, p.y - BALL_R, TABLE_H - BALL_R - p.y);
     for (const p of poly) expect(minRail(p)).toBeGreaterThanOrEqual(RAIL_MARGIN - 1e-6);
@@ -64,12 +64,41 @@ describe('position zone', () => {
     expect(railAway(inBand, vec(1, 0))).toBe(0);
     expect(railExcluded(inBand, vec(1, 0))).toBe(false);
     expect(zoneValue(inBand, zc, INTERMEDIATE)).toBeGreaterThan(0.3);
-    const poly = zonePolygon(zc, INTERMEDIATE);
+    const poly = zonePolygons(zc, INTERMEDIATE).flat();
     const minRail = (p: { x: number; y: number }) =>
       Math.min(p.x - BALL_R, TABLE_W - BALL_R - p.x, p.y - BALL_R, TABLE_H - BALL_R - p.y);
     expect(poly.some((p) => minRail(p) < RAIL_MARGIN)).toBe(true);
     // ...but cueing away from a near rail is awkward and band-excluded.
     expect(railExcluded(vec(65, 4), vec(0, 1))).toBe(true);
+  });
+
+  it('the drawn window never covers positions shadowed by another ball (image #25)', () => {
+    // The 9 sits between the 8 and most of its window: the wedge of cue
+    // positions it screens from the ghost ball must not be painted — the
+    // pie has to split around the shadow instead of bridging across it.
+    const eight = vec(41.6, 34.3);
+    const nine = vec(36.6, 26.8);
+    const zc = zoneContext(eight, ts, [nine]);
+    const polys = zonePolygons(zc, INTERMEDIATE);
+    expect(polys.length).toBeGreaterThan(1); // the shadow splits the window
+    const inPoly = (p: { x: number; y: number }, poly: { x: number; y: number }[]) => {
+      let inside = false;
+      for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+        const a = poly[i];
+        const b = poly[j];
+        if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
+          inside = !inside;
+        }
+      }
+      return inside;
+    };
+    for (let x = 0; x <= TABLE_W; x += 0.5) {
+      for (let y = 0; y <= TABLE_H; y += 0.5) {
+        const p = vec(x, y);
+        if (!polys.some((poly) => inPoly(p, poly))) continue;
+        expect(zoneValue(p, zc, INTERMEDIATE)).toBeGreaterThan(0);
+      }
+    }
   });
 
   it('with a next ball, positions whose every exit is blocked drop to zero', () => {

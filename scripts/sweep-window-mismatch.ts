@@ -7,7 +7,7 @@ import { generatePuzzle } from '../src/generator';
 import { INTERMEDIATE } from '../src/skill';
 import { POCKETS } from '../src/table';
 import { Vec } from '../src/geometry';
-import { zoneContext, zoneBar, zoneValue, zonePeak, zonePolygon } from '../src/zone';
+import { zoneContext, zoneBar, zoneValue, zonePeak, zonePolygons } from '../src/zone';
 
 function pointInPolygon(p: Vec, poly: Vec[]): boolean {
   let inside = false;
@@ -53,27 +53,30 @@ for (let seed = 1; seed <= 80; seed++) {
     const bar = zoneBar(primary, INTERMEDIATE, 0, cap);
     const v = zoneValue(shot.landing, primary, INTERMEDIATE);
 
-    const zone = zonePolygon(primary, INTERMEDIATE, 0, 85, cap);
+    const polys: Vec[][] = zonePolygons(primary, INTERMEDIATE, 0, 85, cap);
     const ref = Math.min(zonePeak(primary, INTERMEDIATE), cap);
-    const polys: Vec[][] = zone.length >= 3 ? [zone] : [];
-    let bestAlt: Vec[] | null = null;
-    const area = (poly: Vec[]) => {
-      let a = 0;
-      for (let i = 0; i < poly.length; i++) {
-        const p = poly[i];
-        const q = poly[(i + 1) % poly.length];
-        a += p.x * q.y - q.x * p.y;
+    let bestAlt: Vec[][] | null = null;
+    const area = (list: Vec[][]) => {
+      let total = 0;
+      for (const poly of list) {
+        let a = 0;
+        for (let i = 0; i < poly.length; i++) {
+          const p = poly[i];
+          const q = poly[(i + 1) % poly.length];
+          a += p.x * q.y - q.x * p.y;
+        }
+        total += Math.abs(a) / 2;
       }
-      return Math.abs(a) / 2;
+      return total;
     };
     for (const p of POCKETS) {
       if (p.id === next.pocket.id) continue;
-      const poly = zonePolygon(
+      const alt = zonePolygons(
         zoneContext(next.ball.pos, p, later, nextZones), INTERMEDIATE, ref, 85, cap,
       );
-      if (poly.length >= 3 && (!bestAlt || area(poly) > area(bestAlt))) bestAlt = poly;
+      if (alt.length > 0 && (!bestAlt || area(alt) > area(bestAlt))) bestAlt = alt;
     }
-    if (bestAlt) polys.push(bestAlt);
+    if (bestAlt) polys.push(...bestAlt);
 
     const inPoly = polys.some((poly) => pointInPolygon(shot.landing!, poly));
     const belowBar = v < bar;

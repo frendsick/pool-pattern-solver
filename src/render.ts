@@ -19,7 +19,8 @@ export interface SceneShot {
 
 export interface Scene {
   balls: Ball[];
-  zone: Vec[] | null;
+  /** Position window polygons (one window can split around a blocking ball). */
+  zone: Vec[][];
   /** Zones via other open pockets: a fainter, second-choice expansion. */
   altZones: Vec[][];
   shot: SceneShot | null;
@@ -125,8 +126,10 @@ export function renderScene(scene: Scene): string {
       body += `<polygon points="${az.map(pt).join(' ')}" fill="rgba(190,190,178,0.22)" stroke="#9a9a8e" stroke-width="1.2" stroke-dasharray="4 4"/>`;
     }
   }
-  if (scene.zone && scene.zone.length >= 3) {
-    body += `<polygon points="${scene.zone.map(pt).join(' ')}" fill="rgba(255,216,77,0.35)" stroke="#caa419" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+  for (const z of scene.zone) {
+    if (z.length >= 3) {
+      body += `<polygon points="${z.map(pt).join(' ')}" fill="rgba(255,216,77,0.35)" stroke="#caa419" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+    }
   }
 
   for (const gp of scene.ghostPaths) {
