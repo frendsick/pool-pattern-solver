@@ -33,7 +33,17 @@ import {
   perturbSamples,
   routeReliability,
 } from './skill';
-import { ZoneContext, ZONE_FLOOR, ZONE_RELATIVE, zoneBar, zoneContext, zonePeak, zoneValue } from './zone';
+import {
+  ZoneContext,
+  ZONE_FLOOR,
+  ZONE_RELATIVE,
+  RAIL_MARGIN,
+  railDist,
+  zoneBar,
+  zoneContext,
+  zonePeak,
+  zoneValue,
+} from './zone';
 
 export interface PlannedShot {
   ball: Ball;
@@ -67,6 +77,12 @@ const EVAL_CAP = 130;
 const MAX_ROUTE = 220;
 const ZONE_VMIN = 0.15;
 const WALK_STEP = 2.0;
+/**
+ * The strict pass keeps landings this far outside the rail band the drawn
+ * window hard-excludes (buildPie): a landing hugging the band's jagged edge
+ * would render on or just outside the window boundary.
+ */
+const LANDING_RAIL_INSET = RAIL_MARGIN + 1;
 
 interface PendingShot {
   ball: Ball;
@@ -129,6 +145,8 @@ interface PathSample {
   rails: number;
   dirAt: Vec;
   v: number;
+  /** Within LANDING_RAIL_INSET of a rail: excluded by the strict pass. */
+  inBand: boolean;
 }
 
 interface Interval {
@@ -157,14 +175,22 @@ function samplePath(
     const d = norm(sub(b, a));
     for (let t = i === 0 ? WALK_STEP : 0; t <= segLen; t += WALK_STEP) {
       const p = add(a, scale(d, t));
-      out.push({ s: s + t, p, rails: i, dirAt: d, v: zoneValue(p, zc, skill) });
+      out.push({
+        s: s + t, p, rails: i, dirAt: d,
+        v: zoneValue(p, zc, skill),
+        inBand: railDist(p) < LANDING_RAIL_INSET,
+      });
     }
     s += segLen;
   }
   return out;
 }
 
-function findIntervals(samples: PathSample[], vmin = ZONE_VMIN): Interval[] {
+function findIntervals(
+  samples: PathSample[],
+  vmin = ZONE_VMIN,
+  excludeRailBand = false,
+): Interval[] {
   const intervals: Interval[] = [];
   let cur: PathSample[] = [];
   const flush = () => {
@@ -182,7 +208,7 @@ function findIntervals(samples: PathSample[], vmin = ZONE_VMIN): Interval[] {
     cur = [];
   };
   for (const q of samples) {
-    if (q.v >= vmin) cur.push(q);
+    if (q.v >= vmin && !(excludeRailBand && q.inBand)) cur.push(q);
     else flush();
   }
   flush();
@@ -244,6 +270,7 @@ export function expectedNextPot(
 interface RouteCandidate {
   node: Node;
   zc: ZoneContext;
+  zcPot: ZoneContext;
   nextPocket: Pocket;
   type: ShotType;
   dir: Vec;
@@ -271,7 +298,14 @@ function lineAngleDeg(pathDir: Vec, zc: ZoneContext): number {
 /** Per-pocket zone target for one solver layer: shared by every node. */
 interface ZoneTarget {
   pocket: Pocket;
+  /**
+   * Onward-control-gated zone (the one the renderer draws, see scene.ts):
+   * the route search measures intervals, bars and landings against it, so
+   * the planned landing always sits inside the window the user sees.
+   */
   zc: ZoneContext;
+  /** Pot-only twin, for reporting the next shot's plain pot probability. */
+  zcPot: ZoneContext;
   /**
    * Window bar (see zone.ts): a landing must be near the best ANY pocket
    * offers, not just this pocket's own best — the closest (easiest) pocket
@@ -285,19 +319,29 @@ interface ZoneTarget {
 
 function zoneTargets(nextBall: Ball, laterBalls: Ball[], skill: SkillProfile): ZoneTarget[] {
   const zoneObstacles = laterBalls.map((b) => b.pos);
-  const found: { pocket: Pocket; zc: ZoneContext; peak: number }[] = [];
+  // Same construction as the rendered zone in scene.ts: zones of the ball
+  // after `nextBall` gate the search zone on onward control.
+  const after = laterBalls[0] ?? null;
+  const afterObstacles = laterBalls.slice(1).map((b) => b.pos);
+  const nextZones = after
+    ? POCKETS.map((p) => zoneContext(after.pos, p, afterObstacles)).filter(
+        (z) => z.ballPathClear,
+      )
+    : [];
+  const found: { pocket: Pocket; zc: ZoneContext; zcPot: ZoneContext; peak: number }[] = [];
   let bestPeak = 0;
   for (const pocket of POCKETS) {
-    const zc = zoneContext(nextBall.pos, pocket, zoneObstacles);
+    const zc = zoneContext(nextBall.pos, pocket, zoneObstacles, nextZones);
     if (!zc.ballPathClear) continue;
     const peak = zonePeak(zc, skill);
     if (peak <= 0) continue;
     bestPeak = Math.max(bestPeak, peak);
-    found.push({ pocket, zc, peak });
+    found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, zoneObstacles), peak });
   }
-  return found.map(({ pocket, zc, peak }) => ({
+  return found.map(({ pocket, zc, zcPot, peak }) => ({
     pocket,
     zc,
+    zcPot,
     bar: Math.max(ZONE_FLOOR, ZONE_RELATIVE * bestPeak),
     ownBar: Math.max(ZONE_FLOOR, ZONE_RELATIVE * peak),
   }));
@@ -316,15 +360,17 @@ function routeCandidates(
   const out: RouteCandidate[] = [];
 
   for (const t of targets) {
-    const { pocket, zc } = t;
+    const { pocket, zc, zcPot } = t;
     const bar = lenient ? t.ownBar : t.bar;
     // Stop shot: only available when the current shot is near straight.
     if (g.cut < (9 * Math.PI) / 180) {
       const landing = g.ghost;
       const v = zoneValue(landing, zc, skill);
-      if (v >= bar) {
+      // The drawn window hard-excludes the rail band; only the lenient pass
+      // may leave the cue ball there (mirrors buildPie's fallback).
+      if (v >= bar && (lenient || railDist(landing) >= LANDING_RAIL_INSET)) {
         out.push({
-          node, zc, nextPocket: pocket,
+          node, zc, zcPot, nextPocket: pocket,
           type: 'stop', dir: stopDir(g), travel: 0.5, rails: 0,
           landing, zoneLen: null, entryDeg: null,
           proxy: node.score * v * skill.typeReliability.stop,
@@ -337,7 +383,7 @@ function routeCandidates(
       if (!dir) continue;
       const minTravel = minCueTravel(g, type);
       const samples = samplePath(g.ghost, dir, routeObstacles, zc, skill);
-      const intervals = findIntervals(samples, bar);
+      const intervals = findIntervals(samples, bar, !lenient);
       for (const iv of intervals) {
         const ivLen = iv.s1 - iv.s0;
         const rawTargets =
@@ -354,7 +400,7 @@ function routeCandidates(
           const sigS = distanceSigma(type, sTarget, rails, skill, g.dCueGhost);
           const stayFactor = Math.min(1, ivLen / (3 * sigS));
           out.push({
-            node, zc, nextPocket: pocket,
+            node, zc, zcPot, nextPocket: pocket,
             type, dir, travel: sTarget, rails,
             landing: tr.end,
             zoneLen: ivLen,
@@ -415,7 +461,8 @@ function expandPass(
     if (e <= 0.01) continue;
     const gNext = shotGeometry(c.landing, nextBall.pos, c.nextPocket);
     if (!gNext) continue;
-    const potNext = zoneValue(c.landing, c.zc, skill);
+    // Pot-only: the next shot's reported pot % must not carry the onward gate.
+    const potNext = zoneValue(c.landing, c.zcPot, skill);
     if (potNext <= 0) continue;
     const intendedPath = tracePath(
       c.node.pending.g.ghost, c.dir, c.travel, routeObstacles, 4,
@@ -494,8 +541,9 @@ function initialNodes(layout: Layout, skill: SkillProfile): Node[] {
 
 /**
  * Remeasure zoneLen/entryDeg for the explanations against the zone the user
- * actually SEES (which carries onward control), not the pot-only zone the
- * route search ran on — otherwise the text can call a tight window wide.
+ * actually SEES. The route search runs on the same onward-control-gated
+ * zones, but with the bar of the pocket actually chosen (the search bar may
+ * have been the cross-pocket one) and a finer walk along the final path.
  */
 function remeasureZones(shots: PlannedShot[], skill: SkillProfile): void {
   for (let i = 0; i < shots.length - 1; i++) {

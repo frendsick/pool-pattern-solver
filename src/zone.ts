@@ -37,6 +37,8 @@ export interface ZoneContext {
    * one of them after the pot (onward control).
    */
   next: ZoneContext[];
+  /** Lazy memo for onwardControl, see cachedOnwardControl. */
+  controlMemo?: Map<number, number>;
 }
 
 export function zoneContext(
@@ -54,7 +56,7 @@ export function zoneContext(
   };
 }
 
-function railDist(c: Vec): number {
+export function railDist(c: Vec): number {
   return Math.min(c.x - MIN_X, MAX_X - c.x, c.y - MIN_Y, MAX_Y - c.y);
 }
 
@@ -148,6 +150,27 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
 }
 
 /**
+ * onwardControl depends on the cue position only through the cut angle, its
+ * side of the aim line, and (for draw reliability) the cue-to-ghost distance:
+ * every exit line is traced from the fixed ghost ball. Quantizing those
+ * (0.5° cuts, 4″ distances) and memoizing per context makes onward-gated
+ * zoneValue cheap enough for the route search to use the same gated zones
+ * the renderer draws.
+ */
+function cachedOnwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): number {
+  const side = g.aim.x * g.cueDir.y - g.aim.y * g.cueDir.x >= 0 ? 1 : 0;
+  const cutB = Math.round(g.cut * (360 / Math.PI));
+  const distB = Math.min(63, Math.round(g.dCueGhost / 4));
+  const key = side * 65536 + cutB * 64 + distB;
+  const memo = (z.controlMemo ??= new Map());
+  const hit = memo.get(key);
+  if (hit !== undefined) return hit;
+  const v = onwardControl(g, z, skill);
+  memo.set(key, v);
+  return v;
+}
+
+/**
  * Value of having the cue ball at `c` for the zone's shot: pot probability,
  * discounted near rails and by lack of onward control; 0 when the position
  * is infeasible (off table, overlapping, blocked, cut too thin).
@@ -173,7 +196,7 @@ export function zoneValue(c: Vec, z: ZoneContext, skill: SkillProfile): number {
   const pot = potProbability(g, z.pocket, skill);
   if (pot <= 0) return 0;
   let v = pot * railComfort(c) * ballComfort(dBall) * obstComfort;
-  if (z.next.length > 0) v *= onwardControl(g, z, skill);
+  if (z.next.length > 0) v *= cachedOnwardControl(g, z, skill);
   return v;
 }
 
@@ -249,7 +272,9 @@ function buildPie(
 ): Vec[] | null {
   const aimBack = rayDir(z); // direction away from pocket
   const halfFan = Math.min(skill.maxCut, (78 * Math.PI) / 180);
-  const steps = 36;
+  // Finer than the scanFan grid: the outline must not clip a corner the
+  // route search just placed a landing in (cachedOnwardControl keeps this cheap).
+  const steps = 72;
   const inner = 2 * BALL_R + 0.3;
 
   const outerArc: Vec[] = [];
@@ -259,7 +284,7 @@ function buildPie(
     const dir = rotate(aimBack, phi);
     let firstGood: number | null = null;
     let lastGood: number | null = null;
-    for (let r = inner; r <= maxRadius; r += 1.5) {
+    for (let r = inner; r <= maxRadius; r += 0.75) {
       const p = add(z.ball, scale(dir, r));
       if (excludeRailBand && railDist(p) < RAIL_MARGIN) {
         if (lastGood !== null) break;
