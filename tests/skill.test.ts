@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { vec, add, scale, rotate } from '../src/geometry';
 import { pocketById, BALL_R } from '../src/table';
 import { shotGeometry } from '../src/shots';
-import { potProbability, distanceSigma, directionSigma, INTERMEDIATE } from '../src/skill';
+import { potProbability, distanceSigma, directionSigma, powerFactor, INTERMEDIATE } from '../src/skill';
 
 describe('pot probability model', () => {
   const ball = vec(50, 25);
@@ -74,5 +74,20 @@ describe('position error model', () => {
     expect(s('lowTouch')).toBeGreaterThan(s('follow'));
     expect(s('lowTouch')).toBeLessThan(s('stun'));
     expect(s('lowTouch')).toBeLessThan(s('draw'));
+  });
+});
+
+describe('hit power', () => {
+  it('comfortable strokes are free, the ceiling is hard', () => {
+    expect(powerFactor(INTERMEDIATE.hitComfort - 1, INTERMEDIATE)).toBe(1);
+    expect(powerFactor(INTERMEDIATE.hitMax + 1, INTERMEDIATE)).toBe(0);
+  });
+
+  it('decays monotonically in between', () => {
+    const mid = (INTERMEDIATE.hitComfort + INTERMEDIATE.hitMax) / 2;
+    const f = powerFactor(mid, INTERMEDIATE);
+    expect(f).toBeGreaterThan(0);
+    expect(f).toBeLessThan(1);
+    expect(powerFactor(mid + 50, INTERMEDIATE)).toBeLessThan(f);
   });
 });

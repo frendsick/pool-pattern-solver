@@ -49,11 +49,12 @@ for (let seed = 1; seed <= 80; seed++) {
         )
       : [];
     const primary = zoneContext(next.ball.pos, next.pocket, later, nextZones);
-    const bar = zoneBar(primary, INTERMEDIATE);
+    const cap = shot.windowRef ?? Infinity;
+    const bar = zoneBar(primary, INTERMEDIATE, 0, cap);
     const v = zoneValue(shot.landing, primary, INTERMEDIATE);
 
-    const zone = zonePolygon(primary, INTERMEDIATE);
-    const ref = zonePeak(primary, INTERMEDIATE);
+    const zone = zonePolygon(primary, INTERMEDIATE, 0, 85, cap);
+    const ref = Math.min(zonePeak(primary, INTERMEDIATE), cap);
     const polys: Vec[][] = zone.length >= 3 ? [zone] : [];
     let bestAlt: Vec[] | null = null;
     const area = (poly: Vec[]) => {
@@ -67,7 +68,9 @@ for (let seed = 1; seed <= 80; seed++) {
     };
     for (const p of POCKETS) {
       if (p.id === next.pocket.id) continue;
-      const poly = zonePolygon(zoneContext(next.ball.pos, p, later, nextZones), INTERMEDIATE, ref);
+      const poly = zonePolygon(
+        zoneContext(next.ball.pos, p, later, nextZones), INTERMEDIATE, ref, 85, cap,
+      );
       if (poly.length >= 3 && (!bestAlt || area(poly) > area(bestAlt))) bestAlt = poly;
     }
     if (bestAlt) polys.push(bestAlt);

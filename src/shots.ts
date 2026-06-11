@@ -96,12 +96,52 @@ export function departureDir(g: ShotGeometry, type: ShotType): Vec | null {
  */
 const POCKET_PACE = 1.25;
 
+/** Roll/draw share of the cue ball's post-contact speed along the aim line. */
+function rollShare(type: ShotType): number {
+  return type === 'stun' ? 0 : type === 'lowTouch' ? (2 / 7) * LOW_TOUCH : 2 / 7;
+}
+
+/**
+ * SIGNED roll share: positive along the aim line (follow), negative against
+ * it (draw, touch of low), zero for stun. The sign matters for the carom
+ * direction's sensitivity to contact error (caromDirSigma in skill.ts).
+ */
+export function signedRollShare(type: ShotType): number {
+  switch (type) {
+    case 'stop':
+    case 'stun':
+      return 0;
+    case 'follow':
+      return 2 / 7;
+    case 'lowTouch':
+      return -(2 / 7) * LOW_TOUCH;
+    case 'draw':
+      return -2 / 7;
+  }
+}
+
 export function minCueTravel(g: ShotGeometry, type: ShotType): number {
   if (type === 'stop') return 0; // firm stun, the object ball takes it all
-  const k =
-    type === 'stun' ? 0 : type === 'lowTouch' ? (2 / 7) * LOW_TOUCH : 2 / 7;
+  const k = rollShare(type);
   const tan2 = Math.tan(g.cut) ** 2;
   return (tan2 + k * k) * g.dBallPocket * POCKET_PACE;
+}
+
+/**
+ * Equivalent roll-out distance of the HIT a route demands. The cue ball keeps
+ * only the (sin² cut + k² cos² cut) share of the hit's distance budget, so a
+ * chosen post-contact travel implies a hit that would roll a ball
+ * cueTravel / share inches. A near-straight shot keeps almost nothing
+ * (share ~ k² ~ 8% for follow/draw): sending the cue ball any real distance
+ * sideways off one demands a monster hit, which makes the pot itself
+ * unrealistic — such routes are priced by SkillProfile.hitComfort/hitMax.
+ */
+export function hitDistance(g: ShotGeometry, type: ShotType, cueTravel: number): number {
+  if (type === 'stop') return 0; // its firm stun is not a powered route
+  const k = rollShare(type);
+  const s2 = Math.sin(g.cut) ** 2;
+  const c2 = Math.cos(g.cut) ** 2;
+  return cueTravel / Math.max(s2 + k * k * c2, 1e-9);
 }
 
 export interface TraceResult {

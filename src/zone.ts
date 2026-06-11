@@ -11,18 +11,31 @@ import {
   shotGeometry,
   departureDir,
   minCueTravel,
+  hitDistance,
   tracePath,
   cuePathClear,
   ballPathToPocketClear,
 } from './shots';
-import { SkillProfile, potProbability, routeReliability } from './skill';
+import {
+  SkillProfile,
+  drawRailFactor,
+  potProbability,
+  powerFactor,
+  routeReliability,
+} from './skill';
 
 /**
- * Cueing within ~13 cm of a cushion is awkward: soft-penalized in `zoneValue`
- * (so the solver leaves the cue ball there only when it has to) and
- * hard-excluded from the drawn polygon unless nothing else is left.
+ * Within ~13 cm of a cushion, cueing AWAY from that cushion (toward the table
+ * center) is awkward — the bridge hand ends up on the rail. Shooting along
+ * the near rail, or into it, is unaffected however close the cue ball sits.
+ * Awkward spots are soft-penalized in `zoneValue` (so the solver leaves the
+ * cue ball there only when it has to) and hard-excluded from the drawn
+ * polygon unless nothing else is left.
  */
 export const RAIL_MARGIN = 5;
+
+/** Cueing toward center more than ~20° off rail-parallel counts as awkward. */
+export const RAIL_AWAY_GATE = 0.35;
 
 export interface ZoneContext {
   ball: Vec;
@@ -60,9 +73,35 @@ export function railDist(c: Vec): number {
   return Math.min(c.x - MIN_X, MAX_X - c.x, c.y - MIN_Y, MAX_Y - c.y);
 }
 
-function railComfort(c: Vec): number {
+/**
+ * Worst component of the shot direction pointing away from a rail within
+ * `margin` of the cue ball, 0..1. Zero means every near rail is being cued
+ * along or into — comfortable no matter how close the cushion is.
+ */
+export function railAway(c: Vec, cueDir: Vec, margin = RAIL_MARGIN): number {
+  let worst = 0;
+  if (c.x - MIN_X < margin) worst = Math.max(worst, cueDir.x);
+  if (MAX_X - c.x < margin) worst = Math.max(worst, -cueDir.x);
+  if (c.y - MIN_Y < margin) worst = Math.max(worst, cueDir.y);
+  if (MAX_Y - c.y < margin) worst = Math.max(worst, -cueDir.y);
+  return Math.max(0, worst);
+}
+
+/** The hard rail-band exclusion: in the band AND cueing toward center. */
+export function railExcluded(c: Vec, cueDir: Vec, margin = RAIL_MARGIN): boolean {
+  return railDist(c) < margin && railAway(c, cueDir, margin) > RAIL_AWAY_GATE;
+}
+
+/** Ghost-ball position of the zone's shot (cue-ball center at contact). */
+export function zoneGhost(z: ZoneContext): Vec {
+  const aim = norm(sub(z.pocket.target, z.ball));
+  return sub(z.ball, scale(aim, 2 * BALL_R));
+}
+
+function railComfort(c: Vec, cueDir: Vec): number {
   const d = railDist(c);
-  return d >= RAIL_MARGIN ? 1 : 0.55 + 0.45 * (d / RAIL_MARGIN);
+  if (d >= RAIL_MARGIN) return 1;
+  return 1 - (0.45 * railAway(c, cueDir) * (RAIL_MARGIN - d)) / RAIL_MARGIN;
 }
 
 /**
@@ -110,9 +149,11 @@ function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
  * like it or not) and (b) the type's execution reliability (draw is always
  * the toughest). Travel chosen beyond the forced minimum costs nothing here —
  * the window stays long along the shot line and natural multi-rail routes
- * count fully; executing the chosen distance is the Route's problem. A
- * near-straight shot only offers the aim line itself, which is exactly why
- * straight position is rigid.
+ * count fully; executing the chosen distance is the Route's problem — EXCEPT
+ * for the hit power it demands (powerFactor): a near-straight shot keeps so
+ * little of the hit that long exits off it would need a monster stroke, so
+ * they stop counting. A near-straight shot only offers the aim line itself,
+ * which is exactly why straight position is rigid.
  */
 function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): number {
   const sat = (v: number) => Math.min(1, v / CONTROL_SAT);
@@ -129,6 +170,9 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
       routeReliability(type, g.dCueGhost, skill);
     if (cap <= best) continue; // cannot beat what another exit already offers
     const tr = tracePath(g.ghost, dir, CONTROL_RANGE, z.obstacles, 3);
+    // Draw action is compromised when the first cushion arrives early: the
+    // post-rail part of the exit line is discounted (drawRailFactor).
+    const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
     let s = 0; // cumulative travel at the start of the segment
     outer: for (let i = 0; i + 1 < tr.points.length; i++) {
       const a = tr.points[i];
@@ -136,10 +180,14 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
       const segLen = dist(a, b);
       if (segLen < 1e-9) continue;
       const d = norm(sub(b, a));
+      const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
       for (let t = CONTROL_STEP; t <= segLen; t += CONTROL_STEP) {
         const travel = s + t;
         if (travel < minTravel) continue;
-        const v = sat(bestNextValue(add(a, scale(d, t)), z, skill)) * cap;
+        const pf = powerFactor(hitDistance(g, type, travel), skill);
+        if (pf <= 0) break outer; // farther only needs more power
+        const v =
+          sat(bestNextValue(add(a, scale(d, t)), z, skill)) * cap * pf * railFac;
         if (v > best) best = v;
         if (best >= cap - 1e-9) break outer; // this exit is saturated
       }
@@ -195,7 +243,7 @@ export function zoneValue(c: Vec, z: ZoneContext, skill: SkillProfile): number {
   if (!cuePathClear(c, g.ghost, z.obstacles)) return 0;
   const pot = potProbability(g, z.pocket, skill);
   if (pot <= 0) return 0;
-  let v = pot * railComfort(c) * ballComfort(dBall) * obstComfort;
+  let v = pot * railComfort(c, g.cueDir) * ballComfort(dBall) * obstComfort;
   if (z.next.length > 0) v *= cachedOnwardControl(g, z, skill);
   return v;
 }
@@ -219,25 +267,41 @@ export function zonePeak(z: ZoneContext, skill: SkillProfile, maxRadius = 70): n
   return peak;
 }
 
-/** The value a position must reach to count as inside the window. */
-export function zoneBar(z: ZoneContext, skill: SkillProfile, reference = 0): number {
-  return Math.max(ZONE_FLOOR, ZONE_RELATIVE * Math.max(zonePeak(z, skill), reference));
+/**
+ * The value a position must reach to count as inside the window: within
+ * ZONE_RELATIVE of the zone's best (raised to `reference` for second-choice
+ * zones). `cap` lowers the anchor to what the arriving route can actually
+ * reach (PlannedShot.windowRef): the drawn window then shows the stretch
+ * that route is playing for, and the planned landing sits inside it.
+ */
+export function zoneBar(
+  z: ZoneContext,
+  skill: SkillProfile,
+  reference = 0,
+  cap = Infinity,
+): number {
+  const anchor = Math.min(cap, Math.max(zonePeak(z, skill), reference));
+  return Math.max(ZONE_FLOOR, ZONE_RELATIVE * anchor);
 }
 
 /**
  * Build a drawable pie-shaped polygon for the zone: rays fanned around the
  * "straight in" direction (opposite the aim line), each clipped to its first
- * good run. The 20 cm rail band is excluded; if that leaves nothing (the
- * zone only exists against a rail), the band is reluctantly readmitted.
+ * good run. Rail-band positions that would cue away from the near rail are
+ * excluded (railExcluded — along-the-rail shots keep them); if that leaves
+ * nothing, the awkward band is reluctantly readmitted.
  */
 export function zonePolygon(
   z: ZoneContext,
   skill: SkillProfile,
   reference = 0,
-  maxRadius = 70,
+  // A touch beyond zonePeak's scan: route landings can sit out here, and the
+  // drawn window must not clip them on the radius alone.
+  maxRadius = 85,
+  cap = Infinity,
 ): Vec[] {
   if (!z.ballPathClear) return [];
-  const minValue = zoneBar(z, skill, reference);
+  const minValue = zoneBar(z, skill, reference, cap);
   return (
     buildPie(z, skill, minValue, maxRadius, true) ??
     buildPie(z, skill, minValue, maxRadius, false) ??
@@ -276,6 +340,7 @@ function buildPie(
   // route search just placed a landing in (cachedOnwardControl keeps this cheap).
   const steps = 72;
   const inner = 2 * BALL_R + 0.3;
+  const ghost = zoneGhost(z);
 
   const outerArc: Vec[] = [];
   const innerArc: Vec[] = [];
@@ -286,7 +351,7 @@ function buildPie(
     let lastGood: number | null = null;
     for (let r = inner; r <= maxRadius; r += 0.75) {
       const p = add(z.ball, scale(dir, r));
-      if (excludeRailBand && railDist(p) < RAIL_MARGIN) {
+      if (excludeRailBand && railExcluded(p, norm(sub(ghost, p)))) {
         if (lastGood !== null) break;
         continue;
       }

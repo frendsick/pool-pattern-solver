@@ -24,13 +24,16 @@ import {
   shotGeometry,
   departureDir,
   minCueTravel,
+  hitDistance,
   tracePath,
 } from './shots';
 import {
   SkillProfile,
   distanceSigma,
   directionSigma,
+  drawRailFactor,
   perturbSamples,
+  powerFactor,
   routeReliability,
 } from './skill';
 import {
@@ -38,9 +41,10 @@ import {
   ZONE_FLOOR,
   ZONE_RELATIVE,
   RAIL_MARGIN,
-  railDist,
+  railExcluded,
   zoneBar,
   zoneContext,
+  zoneGhost,
   zonePeak,
   zoneValue,
 } from './zone';
@@ -60,6 +64,13 @@ export interface PlannedShot {
   travel: number;
   /** Expected pot probability of the NEXT shot over the landing spread. */
   eNext: number | null;
+  /**
+   * What the chosen route can reach in the next zone (the best zone value
+   * along its landing stretch): caps the drawn window's quality bar so the
+   * window shows the stretch this route is actually playing for, and the
+   * planned landing always sits inside it.
+   */
+  windowRef: number | null;
   /** Length of the intended path that lies inside the next zone, inches. */
   zoneLen: number | null;
   /** Angle between path at zone entry and the line of the next shot, deg. */
@@ -78,9 +89,10 @@ const MAX_ROUTE = 220;
 const ZONE_VMIN = 0.15;
 const WALK_STEP = 2.0;
 /**
- * The strict pass keeps landings this far outside the rail band the drawn
- * window hard-excludes (buildPie): a landing hugging the band's jagged edge
- * would render on or just outside the window boundary.
+ * The strict pass keeps landings this far clear of the awkward rail band the
+ * drawn window hard-excludes (buildPie, railExcluded — cueing away from a
+ * near rail): a landing hugging the band's jagged edge would render on or
+ * just outside the window boundary. Along-the-rail landings are fine.
  */
 const LANDING_RAIL_INSET = RAIL_MARGIN + 1;
 
@@ -113,9 +125,10 @@ const TYPE_RANK: Record<ShotType, number> = {
 };
 
 function complexityDiscount(type: ShotType, rails: number, travel: number): number {
-  // Travel is a real cost (Dr. Dave #2: don't move more than needed), so it
-  // weighs noticeably more than the cosmetic type/rail terms.
-  return 1 - (TYPE_RANK[type] * 0.01 + rails * 0.004 + travel * 0.0005);
+  // Travel only breaks TRUE ties: going longer on a natural angle for a
+  // bigger window (or to come in along the line) is often the easier play,
+  // and the score's window math decides that — this must not override it.
+  return 1 - (TYPE_RANK[type] * 0.01 + rails * 0.004 + travel * 0.0002);
 }
 
 /**
@@ -145,7 +158,16 @@ interface PathSample {
   rails: number;
   dirAt: Vec;
   v: number;
-  /** Within LANDING_RAIL_INSET of a rail: excluded by the strict pass. */
+  /**
+   * EFFECTIVE landing value: zone value priced by everything the route to
+   * this point costs — the type's reliability, the hit power the travel
+   * demands at this cut, draw rail-room. 0 before the pot-pace minimum
+   * travel. This is the scale candidates and the landing bar live on, so an
+   * easy natural follow into a decent spot outranks a hard draw into the
+   * zone's richest one.
+   */
+  eff: number;
+  /** In the rail band AND cueing away from it: excluded by the strict pass. */
   inBand: boolean;
 }
 
@@ -158,14 +180,20 @@ interface Interval {
 }
 
 function samplePath(
-  start: Vec,
+  g: ShotGeometry,
+  type: ShotType,
   dir: Vec,
   obstacles: Vec[],
   zc: ZoneContext,
   skill: SkillProfile,
 ): PathSample[] {
-  const tr = tracePath(start, dir, MAX_ROUTE, obstacles, 3);
+  const tr = tracePath(g.ghost, dir, MAX_ROUTE, obstacles, 3);
   const out: PathSample[] = [];
+  const ghost = zoneGhost(zc); // the next shot is cued from p toward this
+  const minTravel = minCueTravel(g, type);
+  const rel = routeReliability(type, g.dCueGhost, skill);
+  const firstSeg =
+    tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
   let s = 0;
   for (let i = 0; i + 1 < tr.points.length; i++) {
     const a = tr.points[i];
@@ -173,12 +201,20 @@ function samplePath(
     const segLen = Math.hypot(b.x - a.x, b.y - a.y);
     if (segLen < 1e-9) continue;
     const d = norm(sub(b, a));
+    const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
     for (let t = i === 0 ? WALK_STEP : 0; t <= segLen; t += WALK_STEP) {
+      const travel = s + t;
       const p = add(a, scale(d, t));
+      const v = zoneValue(p, zc, skill);
+      const ease =
+        travel < minTravel
+          ? 0
+          : rel * railFac * powerFactor(hitDistance(g, type, travel), skill);
       out.push({
-        s: s + t, p, rails: i, dirAt: d,
-        v: zoneValue(p, zc, skill),
-        inBand: railDist(p) < LANDING_RAIL_INSET,
+        s: travel, p, rails: i, dirAt: d,
+        v,
+        eff: v * ease,
+        inBand: railExcluded(p, norm(sub(ghost, p)), LANDING_RAIL_INSET),
       });
     }
     s += segLen;
@@ -188,7 +224,7 @@ function samplePath(
 
 function findIntervals(
   samples: PathSample[],
-  vmin = ZONE_VMIN,
+  effMin = ZONE_VMIN,
   excludeRailBand = false,
 ): Interval[] {
   const intervals: Interval[] = [];
@@ -196,7 +232,7 @@ function findIntervals(
   const flush = () => {
     if (cur.length >= 2) {
       let peak = cur[0];
-      for (const q of cur) if (q.v > peak.v) peak = q;
+      for (const q of cur) if (q.eff > peak.eff) peak = q;
       intervals.push({
         s0: cur[0].s,
         s1: cur[cur.length - 1].s,
@@ -208,31 +244,24 @@ function findIntervals(
     cur = [];
   };
   for (const q of samples) {
-    if (q.v >= vmin && !(excludeRailBand && q.inBand)) cur.push(q);
+    if (q.eff >= effMin && !(excludeRailBand && q.inBand)) cur.push(q);
     else flush();
   }
   flush();
-  intervals.sort((a, b) => (b.s1 - b.s0) * b.peakV - (a.s1 - a.s0) * a.peakV);
+  intervals.sort(
+    (a, b) => (b.s1 - b.s0) * b.peakV - (a.s1 - a.s0) * a.peakV,
+  );
   return intervals.slice(0, 2);
 }
 
-function railsAtDistance(samples: PathSample[], s: number): number {
-  let rails = 0;
-  for (const q of samples) {
-    if (q.s > s) break;
-    rails = q.rails;
-  }
-  return rails;
-}
-
-function valueNear(samples: PathSample[], s: number): number {
-  let best = 0;
+function sampleNear(samples: PathSample[], s: number): PathSample {
+  let best = samples[0];
   let bestD = Infinity;
   for (const q of samples) {
     const d = Math.abs(q.s - s);
     if (d < bestD) {
       bestD = d;
-      best = q.v;
+      best = q;
     }
   }
   return best;
@@ -253,9 +282,11 @@ export function expectedNextPot(
   zc: ZoneContext,
   skill: SkillProfile,
   shotDist = 0,
+  /** The shot being played: adds carom-direction sensitivity to the spread. */
+  carom?: { g: ShotGeometry; pocket: Pocket },
 ): number {
   const sigS = distanceSigma(type, travel, railsIntended, skill, shotDist);
-  const sigD = directionSigma(type, railsIntended, skill, shotDist);
+  const sigD = directionSigma(type, railsIntended, skill, shotDist, carom);
   let e = 0;
   for (const smp of perturbSamples(sigS, sigD)) {
     const dir = rotate(baseDir, smp.dDir);
@@ -277,9 +308,15 @@ interface RouteCandidate {
   travel: number;
   rails: number;
   landing: Vec;
+  windowRef: number;
   zoneLen: number | null;
   entryDeg: number | null;
   proxy: number;
+  /**
+   * Route ease at the chosen travel: type reliability x hit-power price x
+   * draw rail-room. Multiplies the landing-spread expectation into e.
+   */
+  ease: number;
 }
 
 function stopDir(g: ShotGeometry): Vec {
@@ -306,15 +343,6 @@ interface ZoneTarget {
   zc: ZoneContext;
   /** Pot-only twin, for reporting the next shot's plain pot probability. */
   zcPot: ZoneContext;
-  /**
-   * Window bar (see zone.ts): a landing must be near the best ANY pocket
-   * offers, not just this pocket's own best — the closest (easiest) pocket
-   * sets the quality bar, so a zone via a worse pocket only counts where it
-   * is nearly as good. Search-side twin of the rendering's second-choice rule.
-   */
-  bar: number;
-  /** Bar relative to this pocket's own peak only — the lenient fallback. */
-  ownBar: number;
 }
 
 function zoneTargets(nextBall: Ball, laterBalls: Ball[], skill: SkillProfile): ZoneTarget[] {
@@ -328,23 +356,14 @@ function zoneTargets(nextBall: Ball, laterBalls: Ball[], skill: SkillProfile): Z
         (z) => z.ballPathClear,
       )
     : [];
-  const found: { pocket: Pocket; zc: ZoneContext; zcPot: ZoneContext; peak: number }[] = [];
-  let bestPeak = 0;
+  const found: ZoneTarget[] = [];
   for (const pocket of POCKETS) {
     const zc = zoneContext(nextBall.pos, pocket, zoneObstacles, nextZones);
     if (!zc.ballPathClear) continue;
-    const peak = zonePeak(zc, skill);
-    if (peak <= 0) continue;
-    bestPeak = Math.max(bestPeak, peak);
-    found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, zoneObstacles), peak });
+    if (zonePeak(zc, skill) <= 0) continue;
+    found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, zoneObstacles) });
   }
-  return found.map(({ pocket, zc, zcPot, peak }) => ({
-    pocket,
-    zc,
-    zcPot,
-    bar: Math.max(ZONE_FLOOR, ZONE_RELATIVE * bestPeak),
-    ownBar: Math.max(ZONE_FLOOR, ZONE_RELATIVE * peak),
-  }));
+  return found;
 }
 
 function routeCandidates(
@@ -358,57 +377,105 @@ function routeCandidates(
   const g = node.pending.g;
   const routeObstacles = [nextBall.pos, ...laterBalls.map((b) => b.pos)];
   const out: RouteCandidate[] = [];
+  const stoppable = g.cut < (9 * Math.PI) / 180;
 
+  // Sample every pocket x type departure line first: the landing bar is set
+  // by the best EFFECTIVE value this node can reach (zone value priced by
+  // type reliability, hit power and draw rail-room), so an easy natural
+  // follow into a decent stretch is not pruned in favor of the hardest
+  // shot's access to the zone's richest spot — pocket choice and shot
+  // choice compete on the same ease-priced scale.
+  interface Sampled {
+    t: ZoneTarget;
+    type: ShotType;
+    dir: Vec;
+    samples: PathSample[];
+  }
+  const sampled: Sampled[] = [];
+  const stopEff = (t: ZoneTarget): number =>
+    zoneValue(g.ghost, t.zc, skill) * skill.typeReliability.stop;
+  let nodeMax = 0;
   for (const t of targets) {
-    const { pocket, zc, zcPot } = t;
-    const bar = lenient ? t.ownBar : t.bar;
-    // Stop shot: only available when the current shot is near straight.
-    if (g.cut < (9 * Math.PI) / 180) {
-      const landing = g.ghost;
-      const v = zoneValue(landing, zc, skill);
-      // The drawn window hard-excludes the rail band; only the lenient pass
-      // may leave the cue ball there (mirrors buildPie's fallback).
-      if (v >= bar && (lenient || railDist(landing) >= LANDING_RAIL_INSET)) {
-        out.push({
-          node, zc, zcPot, nextPocket: pocket,
-          type: 'stop', dir: stopDir(g), travel: 0.5, rails: 0,
-          landing, zoneLen: null, entryDeg: null,
-          proxy: node.score * v * skill.typeReliability.stop,
-        });
+    if (stoppable) {
+      const landingDir = norm(sub(zoneGhost(t.zc), g.ghost));
+      if (lenient || !railExcluded(g.ghost, landingDir, LANDING_RAIL_INSET)) {
+        nodeMax = Math.max(nodeMax, stopEff(t));
       }
     }
-
     for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
       const dir = departureDir(g, type);
       if (!dir) continue;
-      const minTravel = minCueTravel(g, type);
-      const samples = samplePath(g.ghost, dir, routeObstacles, zc, skill);
-      const intervals = findIntervals(samples, bar, !lenient);
-      for (const iv of intervals) {
-        const ivLen = iv.s1 - iv.s0;
-        const rawTargets =
-          ivLen < 6 ? [iv.peakS] : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65];
-        // The cue ball cannot travel less than pocket pace leaves it with.
-        const targets = rawTargets
-          .map((s) => Math.max(s, minTravel))
-          .filter((s) => s <= iv.s1);
-        for (const sTarget of targets) {
-          const rails = railsAtDistance(samples, sTarget);
-          const tr = tracePath(g.ghost, dir, sTarget, routeObstacles, 4);
-          if (tr.outcome !== 'ok') continue;
-          const v = valueNear(samples, sTarget);
-          const sigS = distanceSigma(type, sTarget, rails, skill, g.dCueGhost);
-          const stayFactor = Math.min(1, ivLen / (3 * sigS));
-          out.push({
-            node, zc, zcPot, nextPocket: pocket,
-            type, dir, travel: sTarget, rails,
-            landing: tr.end,
-            zoneLen: ivLen,
-            entryDeg: lineAngleDeg(iv.entryDir, zc),
-            proxy:
-              node.score * v * stayFactor * routeReliability(type, g.dCueGhost, skill),
-          });
-        }
+      const samples = samplePath(g, type, dir, routeObstacles, t.zc, skill);
+      for (const q of samples) {
+        if (!lenient && q.inBand) continue;
+        if (q.eff > nodeMax) nodeMax = q.eff;
+      }
+      sampled.push({ t, type, dir, samples });
+    }
+  }
+  const nodeBar = Math.max(ZONE_FLOOR, ZONE_RELATIVE * nodeMax);
+
+  for (const t of targets) {
+    const { pocket, zc, zcPot } = t;
+    // Stop shot: only available when the current shot is near straight.
+    if (stoppable) {
+      const landing = g.ghost;
+      const v = zoneValue(landing, zc, skill);
+      // The drawn window hard-excludes the awkward rail band; only the
+      // lenient pass may leave the cue ball there (mirrors buildPie's
+      // fallback). Awkward = cueing the NEXT shot away from the near rail.
+      const landingDir = norm(sub(zoneGhost(zc), landing));
+      const eff = v * skill.typeReliability.stop;
+      const bar = lenient ? Math.max(ZONE_FLOOR, ZONE_RELATIVE * eff) : nodeBar;
+      if (eff >= bar && (lenient || !railExcluded(landing, landingDir, LANDING_RAIL_INSET))) {
+        out.push({
+          node, zc, zcPot, nextPocket: pocket,
+          type: 'stop', dir: stopDir(g), travel: 0.5, rails: 0,
+          landing, windowRef: v, zoneLen: null, entryDeg: null,
+          proxy: node.score * eff,
+          ease: skill.typeReliability.stop,
+        });
+      }
+    }
+  }
+
+  for (const { t, type, dir, samples } of sampled) {
+    const { pocket, zc, zcPot } = t;
+    // The lenient pass relaxes the bar to what THIS departure line offers,
+    // so the layout still solves when nothing reaches the node's best.
+    let bar = nodeBar;
+    if (lenient) {
+      let own = 0;
+      for (const q of samples) if (q.eff > own) own = q.eff;
+      bar = Math.max(ZONE_FLOOR, ZONE_RELATIVE * own);
+    }
+    const intervals = findIntervals(samples, bar, !lenient);
+    for (const iv of intervals) {
+      const ivLen = iv.s1 - iv.s0;
+      const sTargets =
+        ivLen < 6 ? [iv.peakS] : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65];
+      for (const sTarget of sTargets) {
+        const smp = sampleNear(samples, sTarget);
+        const ease = smp.v > 0 ? smp.eff / smp.v : 0;
+        if (ease <= 0.02) continue;
+        const rails = smp.rails;
+        const tr = tracePath(g.ghost, dir, sTarget, routeObstacles, 4);
+        if (tr.outcome !== 'ok') continue;
+        const sigS = distanceSigma(type, sTarget, rails, skill, g.dCueGhost);
+        const stayFactor = Math.min(1, ivLen / (3 * sigS));
+        out.push({
+          node, zc, zcPot, nextPocket: pocket,
+          type, dir, travel: sTarget, rails,
+          landing: tr.end,
+          // The drawn window is held to what this route's landing stretch
+          // reaches, never above the zone's own peak — and never so high
+          // that the planned landing falls outside it.
+          windowRef: Math.min(iv.peakV, smp.v / ZONE_RELATIVE),
+          zoneLen: ivLen,
+          entryDeg: lineAngleDeg(iv.entryDir, zc),
+          proxy: node.score * smp.eff * stayFactor,
+          ease,
+        });
       }
     }
   }
@@ -451,13 +518,16 @@ function expandPass(
   const children: Node[] = [];
   const routeObstacles = [nextBall.pos, ...laterBalls.map((b) => b.pos)];
   for (const c of candidates.slice(0, EVAL_CAP)) {
-    // P(reach the zone) compounds the landing spread with the execution
-    // reliability of the cue-ball action itself (draw is the toughest).
+    // P(reach the zone) compounds the landing spread (carom-direction
+    // sensitivity included: a natural-angle follow's carom is easy to
+    // direct, a long stun's or draw's is not) with the route's ease — type
+    // reliability, hit power at this cut, draw rail-room.
     const e =
       expectedNextPot(
         c.node.pending.g.ghost, c.dir, c.travel, c.type, c.rails,
         routeObstacles, c.zc, skill, c.node.pending.g.dCueGhost,
-      ) * routeReliability(c.type, c.node.pending.g.dCueGhost, skill);
+        { g: c.node.pending.g, pocket: c.node.pending.pocket },
+      ) * c.ease;
     if (e <= 0.01) continue;
     const gNext = shotGeometry(c.landing, nextBall.pos, c.nextPocket);
     if (!gNext) continue;
@@ -482,6 +552,7 @@ function expandPass(
       rails: c.rails,
       travel: c.travel,
       eNext: e,
+      windowRef: c.windowRef,
       zoneLen: c.zoneLen,
       entryDeg: c.entryDeg,
       explanation: '',
@@ -559,7 +630,7 @@ function remeasureZones(shots: PlannedShot[], skill: SkillProfile): void {
         )
       : [];
     const zc = zoneContext(next.ball.pos, next.pocket, later, nextZones);
-    const bar = zoneBar(zc, skill);
+    const bar = zoneBar(zc, skill, 0, shot.windowRef ?? Infinity);
     // Walk the intended path; keep the in-window run the cue ball ends in.
     let run = 0;
     let runEntryDir: Vec | null = null;
@@ -605,6 +676,7 @@ function finalize(node: Node, skill: SkillProfile): Pattern {
     rails: 0,
     travel: 0,
     eNext: null,
+    windowRef: null,
     zoneLen: null,
     entryDeg: null,
     explanation: '',

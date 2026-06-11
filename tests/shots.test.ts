@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { vec, add, scale, rotate, norm, sub } from '../src/geometry';
 import { pocketById, BALL_R } from '../src/table';
-import { shotGeometry, departureDir, minCueTravel, tracePath } from '../src/shots';
+import { shotGeometry, departureDir, minCueTravel, hitDistance, tracePath } from '../src/shots';
 
 describe('shot geometry', () => {
   const ball = vec(50, 25);
@@ -79,6 +79,35 @@ describe('minCueTravel', () => {
     expect(minCueTravel(gAt(20), 'lowTouch')).toBeLessThan(minCueTravel(gAt(20), 'draw'));
     // the stop shot is the firm exception
     expect(minCueTravel(gAt(0), 'stop')).toBe(0);
+  });
+});
+
+describe('hitDistance', () => {
+  const ball = vec(50, 25);
+  const ts = pocketById('TS');
+
+  const gAt = (cutDeg: number) => {
+    const aimBack = vec(0, -1);
+    const ghost = add(ball, scale(aimBack, 2 * BALL_R));
+    const c = add(ghost, scale(rotate(aimBack, (cutDeg * Math.PI) / 180), 20));
+    return shotGeometry(c, ball, ts)!;
+  };
+
+  it('a near-straight shot demands a monster hit for any real travel', () => {
+    // straight follow keeps only (2/7)^2 ~ 8% of the hit's distance budget
+    expect(hitDistance(gAt(0), 'follow', 40)).toBeCloseTo(40 / (4 / 49), 0);
+    // the same sideways travel off a healthy angle is a normal stroke
+    expect(hitDistance(gAt(40), 'follow', 40)).toBeLessThan(100);
+    expect(hitDistance(gAt(5), 'follow', 40)).toBeGreaterThan(400);
+  });
+
+  it('scales linearly with the chosen travel', () => {
+    const g = gAt(20);
+    expect(hitDistance(g, 'stun', 60)).toBeCloseTo(2 * hitDistance(g, 'stun', 30), 6);
+  });
+
+  it('stop is not a powered route', () => {
+    expect(hitDistance(gAt(0), 'stop', 0.5)).toBe(0);
   });
 });
 

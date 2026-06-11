@@ -4,7 +4,7 @@
 
 import { Vec } from './geometry';
 import { BALL_R, Pocket } from './table';
-import { ShotGeometry, ShotType, approachDeviation } from './shots';
+import { ShotGeometry, ShotType, approachDeviation, signedRollShare } from './shots';
 
 export interface SkillProfile {
   /** Std dev of the cue aim direction error, radians. */
@@ -21,12 +21,25 @@ export interface SkillProfile {
   maxCut: number;
   /** Cuts beyond this (~a quarter-ball hit) need the cue ball close. */
   comfortCut: number;
+  /**
+   * Cuts get gradually harder past this angle (~30°): the aim-error
+   * amplification of the model alone is too forgiving for half-ball-plus
+   * cuts. Below it pots are at full ease; above, the effective aim noise
+   * grows by cutGrowth per radian of extra cut.
+   */
+  cutSweetMax: number;
+  cutGrowth: number;
   /** Max cue-to-ball distance for cuts beyond comfortCut, inches. */
   thinCutMaxDist: number;
   /** Relative speed (travel distance) error per shot type. */
   speedSigma: Record<ShotType, number>;
-  /** Floor on distance error, inches. */
-  speedSigmaFloor: number;
+  /**
+   * Floor on landing-distance error, inches. Even a short positional touch
+   * is not surgical — landing in a small window is never guaranteed — which
+   * is what makes a longer natural route into a BIG window the better play,
+   * and the stop shot (which truly stays put) the easiest of all.
+   */
+  speedSigmaFloor: Record<ShotType, number>;
   /** Departure direction error per shot type, radians. */
   dirSigma: Record<ShotType, number>;
   /** Extra departure-direction error per cushion contact, radians. */
@@ -36,7 +49,14 @@ export interface SkillProfile {
    * thinCutMaxDist (~1 m) of cue-to-ball distance beyond the first.
    */
   drawDistFactor: number;
-  /** Distance error damping per cushion (cushions act as brakes). */
+  /**
+   * Distance error damping per cushion. Cushions act as brakes (distance is
+   * quadratic in speed, so the roll remaining after a cushion compresses any
+   * speed error), which is WHY pros drive the cue ball into a rail behind
+   * the position window: the rebound folds the landing spread back along the
+   * shooting line — a shot wherever the ball stops, even accidentally
+   * straight — instead of arriving in the window only at the end of travel.
+   */
   railBrake: number;
   /** Extra distance noise per cushion, inches. */
   railNoise: number;
@@ -54,6 +74,22 @@ export interface SkillProfile {
    * cue-to-ball distance (see routeReliability).
    */
   typeReliability: Record<ShotType, number>;
+  /**
+   * Draw (and, half as much, a touch of low) needs the cue ball to have room
+   * for the backspin to act before the first cushion: a tangent line that
+   * runs into a rail within this many inches compromises the action — the
+   * idealized instant-bend path stops being trustworthy.
+   */
+  drawRailRoom: number;
+  /**
+   * Hit-power comfort and ceiling, in equivalent roll-out inches of the hit
+   * (hitDistance in shots.ts). Up to hitComfort the pot is unaffected; a
+   * route's value decays to zero at hitMax — past that the shot needs to be
+   * hit so hard the pot stops being realistic. This is what forbids long
+   * sideways routes off a near-straight shot.
+   */
+  hitComfort: number;
+  hitMax: number;
 }
 
 const deg = (d: number) => (d * Math.PI) / 180;
@@ -63,9 +99,11 @@ export const INTERMEDIATE: SkillProfile = {
   throwSigma: 0.012,
   maxCut: deg(60),
   comfortCut: deg(48),
+  cutSweetMax: deg(30),
+  cutGrowth: 1.6, // x1.5 effective aim noise at 48 deg, x1.84 at 60 deg
   thinCutMaxDist: 39.4, // 1 m
   speedSigma: { stop: 0.04, follow: 0.1, lowTouch: 0.11, stun: 0.13, draw: 0.18 },
-  speedSigmaFloor: 1.5,
+  speedSigmaFloor: { stop: 1, follow: 3, lowTouch: 3.5, stun: 3.5, draw: 4 },
   dirSigma: {
     stop: deg(0.8),
     follow: deg(1.2),
@@ -75,11 +113,30 @@ export const INTERMEDIATE: SkillProfile = {
   },
   railDirSigma: deg(0.9),
   drawDistFactor: 0.9,
-  railBrake: 0.75,
-  railNoise: 1.0,
+  railBrake: 0.65,
+  railNoise: 0.6,
   positionTravelScale: 45,
   typeReliability: { stop: 0.99, follow: 0.98, lowTouch: 0.96, stun: 0.93, draw: 0.85 },
+  drawRailRoom: 10,
+  hitComfort: 150,
+  hitMax: 700,
 };
+
+/**
+ * Multiplier on a route's probability from the hit power it demands
+ * (hitDist = equivalent roll-out of the hit, see hitDistance in shots.ts):
+ * 1 inside the comfortable range, decaying to 0 at hitMax. The decay is
+ * quadratic — slow at first, steep near the ceiling — so a routine power
+ * follow around the table off a decent angle keeps most of its value (going
+ * longer for a bigger window is often the BETTER play), while the monster
+ * stroke a near-straight shot would need still dies.
+ */
+export function powerFactor(hitDist: number, skill: SkillProfile): number {
+  if (hitDist <= skill.hitComfort) return 1;
+  if (hitDist >= skill.hitMax) return 0;
+  const t = (hitDist - skill.hitComfort) / (skill.hitMax - skill.hitComfort);
+  return 1 - t * t;
+}
 
 function erf(x: number): number {
   // Abramowitz & Stegun 7.1.26, max error ~1.5e-7.
@@ -111,8 +168,70 @@ export function potProbability(g: ShotGeometry, pocket: Pocket, skill: SkillProf
   const wEff = pocket.halfWidth * Math.pow(Math.cos(dev), 0.7);
   const allowedObError = Math.atan(wEff / Math.max(g.dBallPocket, 2 * BALL_R));
   const amplification = Math.max(g.dCueGhost, 2 * BALL_R) / (2 * BALL_R * Math.cos(g.cut));
-  const obSigma = Math.hypot(skill.aimSigma * amplification, skill.throwSigma);
+  // Cuts past the sweet spot (~30 deg) get gradually harder beyond what the
+  // geometric 1/cos amplification gives: contact-point precision drops off.
+  const cutEase = 1 + skill.cutGrowth * Math.max(0, g.cut - skill.cutSweetMax);
+  const obSigma = Math.hypot(skill.aimSigma * amplification * cutEase, skill.throwSigma);
   return erf(allowedObError / (obSigma * Math.SQRT2));
+}
+
+/**
+ * Std dev of the cue ball's TABLE-FRAME departure direction induced by the
+ * contact error, radians. With aim error e the impact line rotates by
+ * eta = A*e (A = the cue-travel amplification), the cut changes by e - eta,
+ * and the departure angle off the impact line changes by a'(cut) per unit of
+ * cut, where a(c) = atan(tan c / k) and k is the signed roll share. Total:
+ *
+ *   d(psi) = a'(c) * e + (1 - a'(c)) * eta
+ *
+ * For a rolling follow a'(c) = 1 exactly at c = atan(sqrt(2/7)) ~ 28 deg —
+ * the NATURAL ANGLE: the amplified term vanishes and the carom direction
+ * error collapses to the bare aim error. That is the 30-degree-rule plateau,
+ * and why the 15-30 deg window is the sweet spot for moving the cue ball.
+ * Stun (a' = 0) carries the full amplified error; draw (a' < 0) more than
+ * that; a near-straight follow (a' = 3.5) is twitchy in the other direction.
+ *
+ * Errors large enough to miss the pot don't count (those branches score 0
+ * through the pot anyway), so the underlying error is capped at what the
+ * pocket window admits.
+ */
+export function caromDirSigma(
+  g: ShotGeometry,
+  type: ShotType,
+  pocket: Pocket,
+  skill: SkillProfile,
+): number {
+  const k = signedRollShare(type);
+  if (type === 'stop') return 0;
+  const u = Math.tan(g.cut);
+  // a'(c) = d/dc atan(tan c / k) = k (1+u^2) / (k^2 + u^2); stun: a' = 0.
+  const aPrime = k === 0 ? 0 : (k * (1 + u * u)) / (k * k + u * u);
+  const A = Math.max(g.dCueGhost, 2 * BALL_R) / (2 * BALL_R * Math.cos(g.cut));
+  // Pot-conditional cap: an impact-line error beyond the pocket's angular
+  // window is a miss, not a position error. Truncated-normal std ~ w/sqrt(3).
+  const dev = approachDeviation(g.aim, pocket);
+  const wEff = pocket.halfWidth * Math.pow(Math.cos(Math.min(dev, 1.4)), 0.7);
+  const allowed = Math.atan(wEff / Math.max(g.dBallPocket, 2 * BALL_R));
+  const etaRaw = A * skill.aimSigma;
+  const eps = skill.aimSigma * Math.min(1, allowed / Math.sqrt(3) / Math.max(etaRaw, 1e-9));
+  return Math.abs(aPrime + (1 - aPrime) * A) * eps;
+}
+
+/**
+ * Reliability of the backspin action when the departure line meets a cushion
+ * early: draw needs room for the spin to take before the rail, or the
+ * idealized instant-bend path is no longer what happens. 1 for other types
+ * and for routes that never reach a rail.
+ */
+export function drawRailFactor(
+  type: ShotType,
+  firstRailDist: number | null,
+  skill: SkillProfile,
+): number {
+  if (firstRailDist === null) return 1;
+  if (type !== 'draw' && type !== 'lowTouch') return 1;
+  const t = Math.min(1, firstRailDist / skill.drawRailRoom);
+  return type === 'draw' ? 0.65 + 0.35 * t : 0.85 + 0.15 * t;
 }
 
 /**
@@ -155,7 +274,7 @@ export function distanceSigma(
   shotDist = 0,
 ): number {
   const base =
-    (skill.speedSigma[type] * travel + skill.speedSigmaFloor) *
+    (skill.speedSigma[type] * travel + skill.speedSigmaFloor[type]) *
     shotDistFactor(type, shotDist, skill);
   return base * Math.pow(skill.railBrake, rails) + rails * skill.railNoise;
 }
@@ -165,11 +284,14 @@ export function directionSigma(
   rails: number,
   skill: SkillProfile,
   shotDist = 0,
+  /** Shot geometry + pocket: adds the carom-direction term (caromDirSigma). */
+  carom?: { g: ShotGeometry; pocket: Pocket },
 ): number {
-  return (
-    skill.dirSigma[type] * shotDistFactor(type, shotDist, skill) +
-    rails * skill.railDirSigma
-  );
+  const stroke = skill.dirSigma[type] * shotDistFactor(type, shotDist, skill);
+  const base = carom
+    ? Math.hypot(stroke, caromDirSigma(carom.g, type, carom.pocket, skill))
+    : stroke;
+  return base + rails * skill.railDirSigma;
 }
 
 /**

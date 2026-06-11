@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { vec, add, scale, rotate } from '../src/geometry';
 import { pocketById, POCKETS, BALL_R, TABLE_W, TABLE_H } from '../src/table';
-import { zoneContext, zoneValue, zonePolygon, RAIL_MARGIN } from '../src/zone';
+import { zoneContext, zoneValue, zonePolygon, railAway, railExcluded, RAIL_MARGIN } from '../src/zone';
 import { shotGeometry, departureDir, ShotType } from '../src/shots';
 import { INTERMEDIATE } from '../src/skill';
 
@@ -45,12 +45,31 @@ describe('position zone', () => {
     for (const p of poly) expect(p.y).toBeLessThan(ball.y);
   });
 
-  it('keeps the drawn zone out of the 20 cm rail band when open elsewhere', () => {
+  it('keeps the drawn zone out of the rail band where the shot cues away from the rail', () => {
+    // Pot straight up the table: every band position cues toward center.
     const zc = zoneContext(ball, ts, []);
     const poly = zonePolygon(zc, INTERMEDIATE);
     const minRail = (p: { x: number; y: number }) =>
       Math.min(p.x - BALL_R, TABLE_W - BALL_R - p.x, p.y - BALL_R, TABLE_H - BALL_R - p.y);
     for (const p of poly) expect(minRail(p)).toBeGreaterThanOrEqual(RAIL_MARGIN - 1e-6);
+  });
+
+  it('a cue ball near a rail is fine when the shot runs along that rail', () => {
+    // Ball near the bottom rail going to the bottom-right corner: the shot
+    // from behind it is nearly rail-parallel, so band positions stay in.
+    const railBall = vec(80, 3.5);
+    const br = pocketById('BR');
+    const zc = zoneContext(railBall, br, []);
+    const inBand = vec(65, 4); // 2.9" off the cushion, cueing along it
+    expect(railAway(inBand, vec(1, 0))).toBe(0);
+    expect(railExcluded(inBand, vec(1, 0))).toBe(false);
+    expect(zoneValue(inBand, zc, INTERMEDIATE)).toBeGreaterThan(0.3);
+    const poly = zonePolygon(zc, INTERMEDIATE);
+    const minRail = (p: { x: number; y: number }) =>
+      Math.min(p.x - BALL_R, TABLE_W - BALL_R - p.x, p.y - BALL_R, TABLE_H - BALL_R - p.y);
+    expect(poly.some((p) => minRail(p) < RAIL_MARGIN)).toBe(true);
+    // ...but cueing away from a near rail is awkward and band-excluded.
+    expect(railExcluded(vec(65, 4), vec(0, 1))).toBe(true);
   });
 
   it('with a next ball, positions whose every exit is blocked drop to zero', () => {

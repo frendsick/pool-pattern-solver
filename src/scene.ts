@@ -66,15 +66,21 @@ export function sceneForStep(
         )
       : [];
     const primary = zoneContext(next.ball.pos, next.pocket, later, nextZones);
-    zone = zonePolygon(primary, skill);
+    // The window's quality bar is capped to what the chosen route's landing
+    // stretch can reach (windowRef): the drawn window is the stretch the
+    // route is playing for, and the planned landing sits inside it.
+    const cap = shot.windowRef ?? Infinity;
+    zone = zonePolygon(primary, skill, 0, 85, cap);
     // The best other pocket expands the window, but as a second choice held
     // to the primary pocket's quality bar; showing every pocket's zone would
     // bury the primary one in noise.
-    const bar = zonePeak(primary, skill);
+    const bar = Math.min(zonePeak(primary, skill), cap);
     let bestAlt: Vec[] | null = null;
     for (const p of POCKETS) {
       if (p.id === next.pocket.id) continue;
-      const poly = zonePolygon(zoneContext(next.ball.pos, p, later, nextZones), skill, bar);
+      const poly = zonePolygon(
+        zoneContext(next.ball.pos, p, later, nextZones), skill, bar, 85, cap,
+      );
       if (poly.length >= 3 && (!bestAlt || polygonArea(poly) > polygonArea(bestAlt))) {
         bestAlt = poly;
       }
