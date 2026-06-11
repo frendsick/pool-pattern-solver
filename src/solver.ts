@@ -137,6 +137,12 @@ function complexityDiscount(type: ShotType, rails: number, travel: number): numb
 /**
  * Routes that skim a pocket mouth risk a scratch that the clean trace does
  * not see: penalize passes within SCRATCH_MARGIN of the capture radius.
+ * Only passes ARRIVING within the pocket's acceptance cone count — the jaws
+ * funnel a ball heading into the mouth, but a pass beyond the acceptance
+ * angle (e.g. a rebound off the cushion just beside a side pocket) meets
+ * cushion-backed facings and stays on the table; the residual chance of the
+ * perturbed path entering the mouth itself is already priced by the
+ * quadrature's scratch traces.
  */
 const SCRATCH_MARGIN = 4;
 
@@ -145,6 +151,9 @@ function pocketRisk(path: Vec[]): number {
   for (const p of POCKETS) {
     let d = Infinity;
     for (let i = 0; i + 1 < path.length; i++) {
+      const seg = sub(path[i + 1], path[i]);
+      if (Math.hypot(seg.x, seg.y) < 1e-9) continue;
+      if (angleBetween(seg, p.facing) > p.acceptance) continue;
       d = Math.min(d, distPointSegment(p.target, path[i], path[i + 1]));
     }
     const clear = d - p.captureRadius;
