@@ -452,8 +452,21 @@ function routeCandidates(
     const intervals = findIntervals(samples, bar, !lenient);
     for (const iv of intervals) {
       const ivLen = iv.s1 - iv.s0;
+      // The aggressive option must be on offer too: as deep into the window
+      // as the route reaches (usually as close to the next ball as it gets),
+      // backed off the window's end by 2 sigma of landing spread — never to
+      // the literal edge. The quadrature (expectedNextPot) prices the margin,
+      // so the deep candidate wins exactly when the easy short shot leaves
+      // headroom for it and loses when the spread spills out of the window.
+      const endSmp = sampleNear(samples, iv.s1);
+      const sigEnd = distanceSigma(type, iv.s1, endSmp.rails, skill, g.dCueGhost);
+      const sDeep = Math.max(iv.s0, Math.max(iv.peakS, iv.s1 - 2 * sigEnd));
       const sTargets =
-        ivLen < 6 ? [iv.peakS] : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65];
+        ivLen < 6
+          ? [iv.peakS]
+          : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65, sDeep].filter(
+              (s, i, all) => all.findIndex((o) => Math.abs(o - s) < 2) === i,
+            );
       for (const sTarget of sTargets) {
         const smp = sampleNear(samples, sTarget);
         const ease = smp.v > 0 ? smp.eff / smp.v : 0;

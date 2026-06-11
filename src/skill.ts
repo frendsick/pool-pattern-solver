@@ -50,6 +50,16 @@ export interface SkillProfile {
    */
   drawDistFactor: number;
   /**
+   * A draw SHORTER than thinCutMaxDist is proportionally easier to execute
+   * cleanly (keeping backspin over half a meter is routine), so its
+   * reliability exponent shrinks with distance down to this floor. This is
+   * the aggression headroom of an easy, quite-short shot: maximum draw to get
+   * closer to the next ball is then barely costlier than a touch of low.
+   * Only the clean-action reliability eases — the landing spread keeps its
+   * draw-sized sigmas, so draw stays the toughest type to land precisely.
+   */
+  drawShortEase: number;
+  /**
    * Distance error damping per cushion. Cushions act as brakes (distance is
    * quadratic in speed, so the roll remaining after a cushion compresses any
    * speed error), which is WHY pros drive the cue ball into a rail behind
@@ -113,6 +123,7 @@ export const INTERMEDIATE: SkillProfile = {
   },
   railDirSigma: deg(0.9),
   drawDistFactor: 0.9,
+  drawShortEase: 0.5, // 0.85^0.5 ~ 0.92 reliability for a very short draw
   railBrake: 0.65,
   railNoise: 0.6,
   positionTravelScale: 45,
@@ -237,14 +248,20 @@ export function drawRailFactor(
 /**
  * Execution reliability of a position route: the shot type's clean-action
  * probability, compounded by distance for draw (a long draw needs a much
- * harder stroke to keep its backspin).
+ * harder stroke to keep its backspin) — and EASED below ~1 m, where keeping
+ * the backspin is routine (drawShortEase): on an easy short shot, maximum
+ * draw for a closer landing is a realistic, aggressive play.
  */
 export function routeReliability(
   type: ShotType,
   shotDist: number,
   skill: SkillProfile,
 ): number {
-  return Math.pow(skill.typeReliability[type], shotDistFactor(type, shotDist, skill));
+  let f = shotDistFactor(type, shotDist, skill);
+  if (type === 'draw' && shotDist < skill.thinCutMaxDist) {
+    f = Math.max(skill.drawShortEase, shotDist / skill.thinCutMaxDist);
+  }
+  return Math.pow(skill.typeReliability[type], f);
 }
 
 /**
