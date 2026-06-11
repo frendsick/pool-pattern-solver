@@ -9,10 +9,10 @@ import {
   ShotGeometry,
   ShotType,
   shotGeometry,
-  departureDir,
   minCueTravel,
   hitDistance,
   tracePath,
+  caromLocus,
   cuePathClear,
   ballPathToPocketClear,
 } from './shots';
@@ -162,14 +162,17 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
       ? sat(bestNextValue(g.ghost, z, skill)) * skill.typeReliability.stop
       : 0;
   for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
-    const dir = departureDir(g, type);
-    if (!dir) continue;
+    // Exit landings walked along the landing locus (caromLocus): the carom
+    // path's tangent-line slide scales with travel, so every travel's landing
+    // sits on this one ray off the ghost.
+    const locus = caromLocus(g, type);
+    if (!locus) continue;
     const minTravel = minCueTravel(g, type);
     const cap =
       Math.exp(-minTravel / skill.positionTravelScale) *
       routeReliability(type, g.dCueGhost, skill);
     if (cap <= best) continue; // cannot beat what another exit already offers
-    const tr = tracePath(g.ghost, dir, CONTROL_RANGE, z.obstacles, 3);
+    const tr = tracePath(g.ghost, locus.dir, CONTROL_RANGE * locus.eta, z.obstacles, 3);
     // Draw action is compromised when the first cushion arrives early: the
     // post-rail part of the exit line is discounted (drawRailFactor).
     const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
@@ -182,7 +185,7 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
       const d = norm(sub(b, a));
       const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
       for (let t = CONTROL_STEP; t <= segLen; t += CONTROL_STEP) {
-        const travel = s + t;
+        const travel = (s + t) / locus.eta;
         if (travel < minTravel) continue;
         const pf = powerFactor(hitDistance(g, type, travel), skill);
         if (pf <= 0) break outer; // farther only needs more power

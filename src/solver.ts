@@ -26,6 +26,9 @@ import {
   minCueTravel,
   hitDistance,
   tracePath,
+  CaromCurve,
+  caromCurve,
+  caromLocus,
 } from './shots';
 import {
   SkillProfile,
@@ -182,12 +185,17 @@ interface Interval {
 function samplePath(
   g: ShotGeometry,
   type: ShotType,
-  dir: Vec,
   obstacles: Vec[],
   zc: ZoneContext,
   skill: SkillProfile,
-): PathSample[] {
-  const tr = tracePath(g.ghost, dir, MAX_ROUTE, obstacles, 3);
+): PathSample[] | null {
+  // The carom path scales linearly with travel (caromLocus), so the landings
+  // of every candidate travel lie on one straight ray off the ghost: walk
+  // that, and convert locus arc back to path travel via eta. The chosen
+  // candidate's exact curved path is re-traced in routeCandidates.
+  const locus = caromLocus(g, type);
+  if (!locus) return null;
+  const tr = tracePath(g.ghost, locus.dir, MAX_ROUTE * locus.eta, obstacles, 3);
   const out: PathSample[] = [];
   const ghost = zoneGhost(zc); // the next shot is cued from p toward this
   const minTravel = minCueTravel(g, type);
@@ -203,7 +211,7 @@ function samplePath(
     const d = norm(sub(b, a));
     const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
     for (let t = i === 0 ? WALK_STEP : 0; t <= segLen; t += WALK_STEP) {
-      const travel = s + t;
+      const travel = (s + t) / locus.eta;
       const p = add(a, scale(d, t));
       const v = zoneValue(p, zc, skill);
       const ease =
@@ -284,14 +292,20 @@ export function expectedNextPot(
   shotDist = 0,
   /** The shot being played: adds carom-direction sensitivity to the spread. */
   carom?: { g: ShotGeometry; pocket: Pocket },
+  /** The slide-phase curve of the intended route (caromCurve). */
+  curve?: CaromCurve,
 ): number {
   const sigS = distanceSigma(type, travel, railsIntended, skill, shotDist);
   const sigD = directionSigma(type, railsIntended, skill, shotDist, carom);
   let e = 0;
   for (const smp of perturbSamples(sigS, sigD)) {
     const dir = rotate(baseDir, smp.dDir);
+    const cv =
+      curve && smp.dDir !== 0
+        ? { offsets: curve.offsets.map((o) => rotate(o, smp.dDir)), arc: curve.arc }
+        : curve;
     const t = Math.max(0.1, travel + smp.dDist);
-    const tr = tracePath(start, dir, t, obstacles, 4);
+    const tr = tracePath(start, dir, t, obstacles, 4, cv);
     if (tr.outcome === 'scratch') continue;
     e += smp.weight * zoneValue(tr.end, zc, skill);
   }
@@ -405,7 +419,8 @@ function routeCandidates(
     for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
       const dir = departureDir(g, type);
       if (!dir) continue;
-      const samples = samplePath(g, type, dir, routeObstacles, t.zc, skill);
+      const samples = samplePath(g, type, routeObstacles, t.zc, skill);
+      if (!samples) continue;
       for (const q of samples) {
         if (!lenient && q.inBand) continue;
         if (q.eff > nodeMax) nodeMax = q.eff;
@@ -472,7 +487,10 @@ function routeCandidates(
         const ease = smp.v > 0 ? smp.eff / smp.v : 0;
         if (ease <= 0.02) continue;
         const rails = smp.rails;
-        const tr = tracePath(g.ghost, dir, sTarget, routeObstacles, 4);
+        const tr = tracePath(
+          g.ghost, dir, sTarget, routeObstacles, 4,
+          caromCurve(g, type, sTarget) ?? undefined,
+        );
         if (tr.outcome !== 'ok') continue;
         const sigS = distanceSigma(type, sTarget, rails, skill, g.dCueGhost);
         const stayFactor = Math.min(1, ivLen / (3 * sigS));
@@ -535,11 +553,13 @@ function expandPass(
     // sensitivity included: a natural-angle follow's carom is easy to
     // direct, a long stun's or draw's is not) with the route's ease — type
     // reliability, hit power at this cut, draw rail-room.
+    const curve = caromCurve(c.node.pending.g, c.type, c.travel) ?? undefined;
     const e =
       expectedNextPot(
         c.node.pending.g.ghost, c.dir, c.travel, c.type, c.rails,
         routeObstacles, c.zc, skill, c.node.pending.g.dCueGhost,
         { g: c.node.pending.g, pocket: c.node.pending.pocket },
+        curve,
       ) * c.ease;
     if (e <= 0.01) continue;
     const gNext = shotGeometry(c.landing, nextBall.pos, c.nextPocket);
@@ -548,7 +568,7 @@ function expandPass(
     const potNext = zoneValue(c.landing, c.zcPot, skill);
     if (potNext <= 0) continue;
     const intendedPath = tracePath(
-      c.node.pending.g.ghost, c.dir, c.travel, routeObstacles, 4,
+      c.node.pending.g.ghost, c.dir, c.travel, routeObstacles, 4, curve,
     );
     const risk = pocketRisk(intendedPath.points);
     const p = c.node.pending;

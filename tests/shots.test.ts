@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { vec, add, scale, rotate, norm, sub } from '../src/geometry';
 import { pocketById, BALL_R } from '../src/table';
-import { shotGeometry, departureDir, minCueTravel, hitDistance, tracePath } from '../src/shots';
+import {
+  shotGeometry,
+  departureDir,
+  minCueTravel,
+  hitDistance,
+  tracePath,
+  caromCurve,
+  caromLocus,
+} from '../src/shots';
+import { angleBetween, dot, dist } from '../src/geometry';
 
 describe('shot geometry', () => {
   const ball = vec(50, 25);
@@ -108,6 +117,77 @@ describe('hitDistance', () => {
 
   it('stop is not a powered route', () => {
     expect(hitDistance(gAt(0), 'stop', 0.5)).toBe(0);
+  });
+});
+
+describe('carom curve (30-degree rule trajectory)', () => {
+  const ball = vec(50, 25);
+  const ts = pocketById('TS');
+
+  const gAt = (cutDeg: number) => {
+    const aimBack = vec(0, -1);
+    const ghost = add(ball, scale(aimBack, 2 * BALL_R));
+    const c = add(ghost, scale(rotate(aimBack, (cutDeg * Math.PI) / 180), 20));
+    return shotGeometry(c, ball, ts)!;
+  };
+
+  it('a rolling follow departs along the tangent line, not the carom line', () => {
+    const g = gAt(30);
+    const cv = caromCurve(g, 'follow', 40)!;
+    const first = norm(cv.offsets[0]);
+    // first slide step hugs the tangent...
+    expect(angleBetween(first, g.tangent)).toBeLessThan(0.06);
+    // ...which is well off the final carom line (~26° here)
+    expect(angleBetween(first, departureDir(g, 'follow')!)).toBeGreaterThan(0.35);
+  });
+
+  it('the slide parabola feeds into the departureDir carom line', () => {
+    const g = gAt(30);
+    const cv = caromCurve(g, 'follow', 40)!;
+    const n = cv.offsets.length;
+    const lastSeg = norm(sub(cv.offsets[n - 1], cv.offsets[n - 2]));
+    expect(angleBetween(lastSeg, departureDir(g, 'follow')!)).toBeLessThan(0.06);
+  });
+
+  it('the slide is a small, travel-proportional share of the path', () => {
+    const g = gAt(30);
+    const short = caromCurve(g, 'follow', 30)!;
+    const long = caromCurve(g, 'follow', 90)!;
+    expect(short.arc / 30).toBeGreaterThan(0.01);
+    expect(short.arc / 30).toBeLessThan(0.15);
+    // speed-invariant shape: the curve scales linearly with travel
+    expect(long.arc / short.arc).toBeCloseTo(3, 6);
+  });
+
+  it('draw hooks back behind the tangent line', () => {
+    const g = gAt(30);
+    const cv = caromCurve(g, 'draw', 40)!;
+    const end = cv.offsets[cv.offsets.length - 1];
+    expect(dot(end, g.aim)).toBeLessThan(0);
+    // and the slide is a bigger share than follow's: more slip to burn
+    expect(cv.arc).toBeGreaterThan(caromCurve(g, 'follow', 40)!.arc);
+  });
+
+  it('stop, stun and near-straight shots have no curve', () => {
+    expect(caromCurve(gAt(30), 'stop', 40)).toBeNull();
+    expect(caromCurve(gAt(30), 'stun', 40)).toBeNull();
+    expect(caromCurve(gAt(0.5), 'follow', 40)).toBeNull();
+  });
+
+  it('tracePath lands curved routes on the landing locus', () => {
+    const g = gAt(30);
+    for (const type of ['follow', 'lowTouch', 'draw'] as const) {
+      const locus = caromLocus(g, type)!;
+      expect(locus.eta).toBeGreaterThan(0.97);
+      expect(locus.eta).toBeLessThanOrEqual(1);
+      for (const travel of [20, 40]) {
+        const cv = caromCurve(g, type, travel)!;
+        const tr = tracePath(g.ghost, departureDir(g, type)!, travel, [], 4, cv);
+        const expected = add(g.ghost, scale(locus.dir, locus.eta * travel));
+        expect(tr.rails).toBe(0);
+        expect(dist(tr.end, expected)).toBeLessThan(0.05);
+      }
+    }
   });
 });
 
