@@ -33,7 +33,7 @@ import {
   perturbSamples,
   routeReliability,
 } from './skill';
-import { ZoneContext, zoneBar, zoneContext, zoneValue } from './zone';
+import { ZoneContext, ZONE_FLOOR, ZONE_RELATIVE, zoneBar, zoneContext, zonePeak, zoneValue } from './zone';
 
 export interface PlannedShot {
   ball: Ball;
@@ -272,19 +272,35 @@ function lineAngleDeg(pathDir: Vec, zc: ZoneContext): number {
 interface ZoneTarget {
   pocket: Pocket;
   zc: ZoneContext;
-  /** Window bar (see zone.ts): a landing must be near the zone's best. */
+  /**
+   * Window bar (see zone.ts): a landing must be near the best ANY pocket
+   * offers, not just this pocket's own best — the closest (easiest) pocket
+   * sets the quality bar, so a zone via a worse pocket only counts where it
+   * is nearly as good. Search-side twin of the rendering's second-choice rule.
+   */
   bar: number;
+  /** Bar relative to this pocket's own peak only — the lenient fallback. */
+  ownBar: number;
 }
 
 function zoneTargets(nextBall: Ball, laterBalls: Ball[], skill: SkillProfile): ZoneTarget[] {
   const zoneObstacles = laterBalls.map((b) => b.pos);
-  const out: ZoneTarget[] = [];
+  const found: { pocket: Pocket; zc: ZoneContext; peak: number }[] = [];
+  let bestPeak = 0;
   for (const pocket of POCKETS) {
     const zc = zoneContext(nextBall.pos, pocket, zoneObstacles);
     if (!zc.ballPathClear) continue;
-    out.push({ pocket, zc, bar: zoneBar(zc, skill) });
+    const peak = zonePeak(zc, skill);
+    if (peak <= 0) continue;
+    bestPeak = Math.max(bestPeak, peak);
+    found.push({ pocket, zc, peak });
   }
-  return out;
+  return found.map(({ pocket, zc, peak }) => ({
+    pocket,
+    zc,
+    bar: Math.max(ZONE_FLOOR, ZONE_RELATIVE * bestPeak),
+    ownBar: Math.max(ZONE_FLOOR, ZONE_RELATIVE * peak),
+  }));
 }
 
 function routeCandidates(
@@ -293,12 +309,15 @@ function routeCandidates(
   laterBalls: Ball[],
   targets: ZoneTarget[],
   skill: SkillProfile,
+  lenient: boolean,
 ): RouteCandidate[] {
   const g = node.pending.g;
   const routeObstacles = [nextBall.pos, ...laterBalls.map((b) => b.pos)];
   const out: RouteCandidate[] = [];
 
-  for (const { pocket, zc, bar } of targets) {
+  for (const t of targets) {
+    const { pocket, zc } = t;
+    const bar = lenient ? t.ownBar : t.bar;
     // Stop shot: only available when the current shot is near straight.
     if (g.cut < (9 * Math.PI) / 180) {
       const landing = g.ghost;
@@ -356,10 +375,30 @@ function expandNodes(
   laterBalls: Ball[],
   skill: SkillProfile,
 ): Node[] {
-  const candidates: RouteCandidate[] = [];
   const targets = zoneTargets(nextBall, laterBalls, skill);
+  // Strict pass first: every pocket held to the best pocket's bar. Only when
+  // nothing clears it (the good pocket is unreachable from every node) do the
+  // per-pocket fallback bars get a turn, so the layout still solves.
+  for (const lenient of [false, true]) {
+    const children = expandPass(nodes, nextBall, laterBalls, targets, skill, lenient);
+    if (children.length > 0 || lenient) return children;
+  }
+  return [];
+}
+
+function expandPass(
+  nodes: Node[],
+  nextBall: Ball,
+  laterBalls: Ball[],
+  targets: ZoneTarget[],
+  skill: SkillProfile,
+  lenient: boolean,
+): Node[] {
+  const candidates: RouteCandidate[] = [];
   for (const node of nodes) {
-    candidates.push(...routeCandidates(node, nextBall, laterBalls, targets, skill));
+    candidates.push(
+      ...routeCandidates(node, nextBall, laterBalls, targets, skill, lenient),
+    );
   }
   candidates.sort((a, b) => b.proxy - a.proxy);
 

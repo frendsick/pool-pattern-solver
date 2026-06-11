@@ -9,6 +9,14 @@ import { ShotGeometry, ShotType, approachDeviation } from './shots';
 export interface SkillProfile {
   /** Std dev of the cue aim direction error, radians. */
   aimSigma: number;
+  /**
+   * Std dev of object-ball direction noise at contact (cut-induced throw,
+   * cloth roll-off), radians. Unlike aim error it is NOT amplified by cue
+   * travel — but the pocket's angular window shrinks with ball-to-pocket
+   * distance while this noise stays, so long pots are punished even with the
+   * cue ball parked close behind: closer pockets need much less accuracy.
+   */
+  throwSigma: number;
   /** Hard cap on makeable cut angle, radians. */
   maxCut: number;
   /** Cuts beyond this (~a quarter-ball hit) need the cue ball close. */
@@ -52,6 +60,7 @@ const deg = (d: number) => (d * Math.PI) / 180;
 
 export const INTERMEDIATE: SkillProfile = {
   aimSigma: 0.003,
+  throwSigma: 0.012,
   maxCut: deg(60),
   comfortCut: deg(48),
   thinCutMaxDist: 39.4, // 1 m
@@ -102,8 +111,8 @@ export function potProbability(g: ShotGeometry, pocket: Pocket, skill: SkillProf
   const wEff = pocket.halfWidth * Math.pow(Math.cos(dev), 0.7);
   const allowedObError = Math.atan(wEff / Math.max(g.dBallPocket, 2 * BALL_R));
   const amplification = Math.max(g.dCueGhost, 2 * BALL_R) / (2 * BALL_R * Math.cos(g.cut));
-  const allowedAimError = allowedObError / amplification;
-  return erf(allowedAimError / (skill.aimSigma * Math.SQRT2));
+  const obSigma = Math.hypot(skill.aimSigma * amplification, skill.throwSigma);
+  return erf(allowedObError / (obSigma * Math.SQRT2));
 }
 
 /**

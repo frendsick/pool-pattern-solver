@@ -183,8 +183,8 @@ export function zoneValue(c: Vec, z: ZoneContext, skill: SkillProfile): number {
  * the best position the zone offers (or of `reference`, when the zone is a
  * second-choice expansion judged against the primary pocket's best).
  */
-const ZONE_RELATIVE = 0.8;
-const ZONE_FLOOR = 0.12;
+export const ZONE_RELATIVE = 0.8;
+export const ZONE_FLOOR = 0.12;
 
 /** Best zoneValue over the scanned fan — the quality bar for the window. */
 export function zonePeak(z: ZoneContext, skill: SkillProfile, maxRadius = 70): number {
