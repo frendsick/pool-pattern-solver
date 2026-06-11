@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>9-Ball Pattern Solver</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <header>
+        <h1>9-Ball Pattern Solver</h1>
+        <p class="subtitle">
+          Random late-rack layouts, solved for the best run-out — position
+          zones, natural angles, coming into the line.
+        </p>
+      </header>
+
+      <div class="controls">
+        <button id="newLayout" class="primary">New layout</button>
+        <div class="stepper">
+          <button id="prev">&#8592; Prev</button>
+          <span id="stepLabel">–</span>
+          <button id="next">Next &#8594;</button>
+        </div>
+        <span id="score" class="score"></span>
+      </div>
+
+      <div id="table" class="table"></div>
+
+      <div id="caption" class="caption"></div>
+
+      <footer>
+        Principles from Dr. Dave Alciatore's <em>Pattern Play Principles</em>
+        (Billiards Digest, Feb 2021) and Florian Kohler's
+        <em>Pattern Play</em> (PoolDawg Academy).
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
