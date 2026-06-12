@@ -69,6 +69,29 @@ button.primary {
   color: #fff;
 }
 
+.ball-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.ball-count select {
+  font: inherit;
+  font-size: 14px;
+  padding: 7px 10px;
+  border: 1px solid #c8c2b6;
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.ball-count select:hover {
+  border-color: #9c9482;
+}
+
 .stepper {
   display: flex;
   align-items: center;

@@ -11,7 +11,10 @@ import { ballPathToPocketClear } from './shots';
 const CUSHION_MARGIN = 2.5;
 const MIN_SEPARATION = 6;
 const POCKET_MARGIN = 5;
-const MIN_SCORE = 0.12;
+// Acceptance bar as a per-shot quality so every ball count demands the same
+// standard: a flat Run-out Probability floor would require ~0.79/shot at 9
+// balls (rejecting nearly every layout) but only ~0.49/shot at 3.
+const MIN_SCORE_PER_SHOT = 0.7;
 const MAX_TRIES = 300;
 
 /** Deterministic PRNG so layouts are reproducible from their seed. */
@@ -68,6 +71,7 @@ export function generatePuzzle(
   const rng = mulberry32(seed);
   // With N balls left in 9-ball, the remaining numbers are (10-N)..9.
   const numbers = Array.from({ length: ballCount }, (_, i) => 10 - ballCount + i);
+  const minScore = MIN_SCORE_PER_SHOT ** ballCount;
 
   let best: GeneratedPuzzle | null = null;
   for (let t = 0; t < MAX_TRIES; t++) {
@@ -78,7 +82,7 @@ export function generatePuzzle(
     const layout: Layout = { balls, seed };
     const pattern = solve(layout, skill);
     if (!pattern) continue;
-    if (pattern.score >= MIN_SCORE) return { layout, pattern };
+    if (pattern.score >= minScore) return { layout, pattern };
     if (!best || pattern.score > best.pattern.score) best = { layout, pattern };
   }
   return best; // fall back to the best sub-threshold layout rather than fail

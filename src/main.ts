@@ -4,9 +4,9 @@ import { Pattern } from './solver';
 import { sceneForStep } from './scene';
 import { renderScene } from './render';
 
-// Ball count is configurable internally; the UI pins it to 3 until the
-// solver is verified (see CONTEXT.md: Golden Scenario).
-const BALL_COUNT = 3;
+const MIN_BALLS = 2;
+const MAX_BALLS = 9;
+const DEFAULT_BALLS = 3;
 
 const el = {
   table: document.getElementById('table')!,
@@ -14,9 +14,15 @@ const el = {
   stepLabel: document.getElementById('stepLabel')!,
   score: document.getElementById('score')!,
   newLayout: document.getElementById('newLayout') as HTMLButtonElement,
+  ballCount: document.getElementById('ballCount') as HTMLSelectElement,
   prev: document.getElementById('prev') as HTMLButtonElement,
   next: document.getElementById('next') as HTMLButtonElement,
 };
+
+function selectedBallCount(): number {
+  const n = Number(el.ballCount.value);
+  return Math.min(MAX_BALLS, Math.max(MIN_BALLS, Number.isFinite(n) ? n : DEFAULT_BALLS));
+}
 
 let puzzle: GeneratedPuzzle | null = null;
 let step = 0; // 0 = overview, 1..N = shots
@@ -56,11 +62,12 @@ function renderCurrent(): void {
 }
 
 function newPuzzle(seed: number): void {
+  const ballCount = selectedBallCount();
   el.caption.textContent = 'Generating layout…';
   el.newLayout.disabled = true;
-  window.location.hash = `s=${seed}`;
+  window.location.hash = `s=${seed}&n=${ballCount}`;
   setTimeout(() => {
-    puzzle = generatePuzzle(seed, BALL_COUNT, INTERMEDIATE);
+    puzzle = generatePuzzle(seed, ballCount, INTERMEDIATE);
     step = 0;
     el.newLayout.disabled = false;
     if (!puzzle) {
@@ -72,6 +79,9 @@ function newPuzzle(seed: number): void {
 }
 
 el.newLayout.addEventListener('click', () => {
+  newPuzzle(Math.floor(Math.random() * 1e9));
+});
+el.ballCount.addEventListener('change', () => {
   newPuzzle(Math.floor(Math.random() * 1e9));
 });
 el.prev.addEventListener('click', () => {
@@ -86,4 +96,9 @@ window.addEventListener('keydown', (e) => {
 });
 
 const hashSeed = /s=(\d+)/.exec(window.location.hash)?.[1];
+const hashBalls = /n=(\d+)/.exec(window.location.hash)?.[1];
+if (hashBalls) {
+  const n = Number(hashBalls);
+  if (n >= MIN_BALLS && n <= MAX_BALLS) el.ballCount.value = String(n);
+}
 newPuzzle(hashSeed ? Number(hashSeed) : Math.floor(Math.random() * 1e9));
