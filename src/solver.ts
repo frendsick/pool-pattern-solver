@@ -40,6 +40,7 @@ import {
   routeReliability,
 } from './skill';
 import {
+  NextValueFn,
   ZoneContext,
   ZONE_FLOOR,
   ZONE_RELATIVE,
@@ -51,6 +52,7 @@ import {
   zonePeak,
   zoneValue,
 } from './zone';
+import { ValueSurface, gateFor, surfacesForLayout } from './value';
 
 export interface PlannedShot {
   ball: Ball;
@@ -369,20 +371,19 @@ interface ZoneTarget {
   zcPot: ZoneContext;
 }
 
-function zoneTargets(nextBall: Ball, laterBalls: Ball[], skill: SkillProfile): ZoneTarget[] {
+function zoneTargets(
+  nextBall: Ball,
+  laterBalls: Ball[],
+  skill: SkillProfile,
+  nextValue: NextValueFn | undefined,
+): ZoneTarget[] {
   const zoneObstacles = laterBalls.map((b) => b.pos);
-  // Same construction as the rendered zone in scene.ts: zones of the ball
-  // after `nextBall` gate the search zone on onward control.
-  const after = laterBalls[0] ?? null;
-  const afterObstacles = laterBalls.slice(1).map((b) => b.pos);
-  const nextZones = after
-    ? POCKETS.map((p) => zoneContext(after.pos, p, afterObstacles)).filter(
-        (z) => z.ballPathClear,
-      )
-    : [];
+  // Same construction as the rendered zone in scene.ts: the following ball's
+  // backward value surface (value.ts) gates the search zone on onward
+  // control — carrying the whole chain of requirements down to the 9.
   const found: ZoneTarget[] = [];
   for (const pocket of POCKETS) {
-    const zc = zoneContext(nextBall.pos, pocket, zoneObstacles, nextZones);
+    const zc = zoneContext(nextBall.pos, pocket, zoneObstacles, [], nextValue);
     if (!zc.ballPathClear) continue;
     if (zonePeak(zc, skill) <= 0) continue;
     found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, zoneObstacles) });
@@ -529,8 +530,9 @@ function expandNodes(
   nextBall: Ball,
   laterBalls: Ball[],
   skill: SkillProfile,
+  nextValue: NextValueFn | undefined,
 ): Node[] {
-  const targets = zoneTargets(nextBall, laterBalls, skill);
+  const targets = zoneTargets(nextBall, laterBalls, skill, nextValue);
   // Strict pass first: every pocket held to the best pocket's bar. Only when
   // nothing clears it (the good pocket is unreachable from every node) do the
   // per-pocket fallback bars get a turn, so the layout still solves.
@@ -619,7 +621,11 @@ function expandPass(
   return children.slice(0, BEAM);
 }
 
-function initialNodes(layout: Layout, skill: SkillProfile): Node[] {
+function initialNodes(
+  layout: Layout,
+  skill: SkillProfile,
+  nextValue: NextValueFn | undefined,
+): Node[] {
   const first = layout.balls[0];
   const others = layout.balls.slice(1).map((b) => b.pos);
   const nodes: Node[] = [];
@@ -629,6 +635,15 @@ function initialNodes(layout: Layout, skill: SkillProfile): Node[] {
   for (const pocket of POCKETS) {
     const zc = zoneContext(first.pos, pocket, others);
     if (!zc.ballPathClear) continue;
+    // The gated twin only FILTERS placements whose rest-of-rack is dead —
+    // it must not re-rank: the onward gate saturates (reaching one good spot
+    // earns full credit), so ranking by it would put a rigid straight-in
+    // stop placement above the angled one that flows to the next ball, and
+    // the search's exact eNext chain never gets to see the angled seed
+    // (side-hanger golden). Score and potProb stay pot-only per ADR-0002.
+    const zcGated = nextValue
+      ? zoneContext(first.pos, pocket, others, [], nextValue)
+      : zc;
     const aim = norm(sub(pocket.target, first.pos));
     const aimBack = scale(aim, -1);
     const ghost = add(first.pos, scale(aimBack, 2 * 1.125));
@@ -638,6 +653,7 @@ function initialNodes(layout: Layout, skill: SkillProfile): Node[] {
         const c = add(ghost, scale(rotate(aimBack, (aDeg * Math.PI) / 180), d));
         const v = zoneValue(c, zc, skill);
         if (v < 0.35) continue;
+        if (zcGated !== zc && zoneValue(c, zcGated, skill) <= 0) continue;
         const g = shotGeometry(c, first.pos, pocket);
         if (!g) continue;
         pocketNodes.push({
@@ -660,20 +676,19 @@ function initialNodes(layout: Layout, skill: SkillProfile): Node[] {
  * zones, but with the bar of the pocket actually chosen (the search bar may
  * have been the cross-pocket one) and a finer walk along the final path.
  */
-function remeasureZones(shots: PlannedShot[], skill: SkillProfile): void {
+function remeasureZones(
+  shots: PlannedShot[],
+  skill: SkillProfile,
+  surfaces: (ValueSurface | null)[],
+): void {
   for (let i = 0; i < shots.length - 1; i++) {
     const shot = shots[i];
     const next = shots[i + 1];
     if (!shot.path || shot.zoneLen === null) continue;
     const later = shots.slice(i + 2).map((s) => s.ball.pos);
-    const after = shots[i + 2] ?? null;
-    const afterObstacles = shots.slice(i + 3).map((s) => s.ball.pos);
-    const nextZones = after
-      ? POCKETS.map((p) => zoneContext(after.ball.pos, p, afterObstacles)).filter(
-          (z) => z.ballPathClear,
-        )
-      : [];
-    const zc = zoneContext(next.ball.pos, next.pocket, later, nextZones);
+    const zc = zoneContext(
+      next.ball.pos, next.pocket, later, [], gateFor(surfaces, i + 2),
+    );
     const bar = zoneBar(zc, skill, 0, shot.windowRef ?? Infinity);
     // Walk the intended path; keep the in-window run the cue ball ends in.
     let run = 0;
@@ -705,7 +720,11 @@ function remeasureZones(shots: PlannedShot[], skill: SkillProfile): void {
   }
 }
 
-function finalize(node: Node, skill: SkillProfile): Pattern {
+function finalize(
+  node: Node,
+  skill: SkillProfile,
+  surfaces: (ValueSurface | null)[],
+): Pattern {
   const p = node.pending;
   const last: PlannedShot = {
     ball: p.ball,
@@ -726,7 +745,7 @@ function finalize(node: Node, skill: SkillProfile): Pattern {
     explanation: '',
   };
   const shots = [...node.done, last];
-  remeasureZones(shots, skill);
+  remeasureZones(shots, skill, surfaces);
   for (let i = 0; i < shots.length; i++) {
     shots[i].explanation = explainShot(shots[i], shots[i + 1] ?? null, i === 0, skill);
   }
@@ -792,11 +811,18 @@ function explainShot(
 }
 
 export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
-  let nodes = initialNodes(layout, skill);
+  // Backward pass first (value.ts): V_k surfaces from the 9 down, so every
+  // zone the forward beam search measures against already carries the chain
+  // of requirements of the balls after it.
+  const surfaces = surfacesForLayout(layout, skill);
+  let nodes = initialNodes(layout, skill, gateFor(surfaces, 1));
   if (nodes.length === 0) return null;
   for (let k = 1; k < layout.balls.length; k++) {
-    nodes = expandNodes(nodes, layout.balls[k], layout.balls.slice(k + 1), skill);
+    nodes = expandNodes(
+      nodes, layout.balls[k], layout.balls.slice(k + 1), skill,
+      gateFor(surfaces, k + 1),
+    );
     if (nodes.length === 0) return null;
   }
-  return finalize(nodes[0], skill);
+  return finalize(nodes[0], skill, surfaces);
 }

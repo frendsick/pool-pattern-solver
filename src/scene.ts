@@ -6,6 +6,7 @@ import { Layout, POCKETS } from './table';
 import { SkillProfile } from './skill';
 import { Pattern } from './solver';
 import { zoneContext, zonePeak, zonePolygons } from './zone';
+import { gateFor, surfacesForLayout } from './value';
 import { Scene } from './render';
 
 function polygonArea(polys: Vec[][]): number {
@@ -60,16 +61,12 @@ export function sceneForStep(
   const altZones: Vec[][] = [];
   if (next) {
     const later = layout.balls.slice(k + 1).map((b) => b.pos);
-    // Zones of the ball after `next`: the displayed zone keeps only cue
-    // positions from which the cue ball can be moved on toward one of them.
-    const after = layout.balls[k + 1] ?? null;
-    const afterObstacles = layout.balls.slice(k + 2).map((b) => b.pos);
-    const nextZones = after
-      ? POCKETS.map((p) => zoneContext(after.pos, p, afterObstacles)).filter(
-          (z) => z.ballPathClear,
-        )
-      : [];
-    const primary = zoneContext(next.ball.pos, next.pocket, later, nextZones);
+    // The displayed zone is gated by the following ball's backward value
+    // surface (value.ts, shared with the solver via the per-layout cache):
+    // it keeps only cue positions from which the cue ball can still be moved
+    // on toward what the REST of the rack requires, down to the 9.
+    const gate = gateFor(surfacesForLayout(layout, skill), k + 1);
+    const primary = zoneContext(next.ball.pos, next.pocket, later, [], gate);
     // The window's quality bar is capped to what the chosen route's landing
     // stretch can reach (windowRef): the drawn window is the stretch the
     // route is playing for, and the planned landing sits inside it.
@@ -83,7 +80,7 @@ export function sceneForStep(
     for (const p of POCKETS) {
       if (p.id === next.pocket.id) continue;
       const polys = zonePolygons(
-        zoneContext(next.ball.pos, p, later, nextZones), skill, bar, 85, cap,
+        zoneContext(next.ball.pos, p, later, [], gate), skill, bar, 85, cap,
       );
       if (polys.length > 0 && (!bestAlt || polygonArea(polys) > polygonArea(bestAlt))) {
         bestAlt = polys;

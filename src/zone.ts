@@ -40,6 +40,9 @@ export const RAIL_MARGIN = 5;
 /** Cueing toward center more than ~20° off rail-parallel counts as awkward. */
 export const RAIL_AWAY_GATE = 0.35;
 
+/** Gate target for onward control: value of a cue position for what FOLLOWS. */
+export type NextValueFn = (p: Vec) => number;
+
 export interface ZoneContext {
   ball: Vec;
   pocket: Pocket;
@@ -53,6 +56,15 @@ export interface ZoneContext {
    * one of them after the pot (onward control).
    */
   next: ZoneContext[];
+  /**
+   * Full-depth alternative to `next` (see value.ts): the following ball's
+   * backward value surface, normalized to its own peak. When set, onward
+   * control measures exit landings against it instead of `next`, so the gate
+   * carries the whole chain of requirements down to the 9 — not one ball of
+   * lookahead. CONTROL_SAT then reads "reach a spot worth >= 60% of the best
+   * still available for the rest of the rack".
+   */
+  nextValue?: NextValueFn;
   /** Lazy memo for onwardControl, see cachedOnwardControl. */
   controlMemo?: Map<number, number>;
 }
@@ -62,6 +74,7 @@ export function zoneContext(
   pocket: Pocket,
   obstacles: Vec[],
   next: ZoneContext[] = [],
+  nextValue?: NextValueFn,
 ): ZoneContext {
   return {
     ball,
@@ -69,6 +82,7 @@ export function zoneContext(
     obstacles,
     ballPathClear: ballPathToPocketClear(ball, pocket, obstacles),
     next,
+    nextValue,
   };
 }
 
@@ -135,6 +149,7 @@ const CONTROL_RANGE = 120;
 const STRAIGHT_CUT = (9 * Math.PI) / 180;
 
 function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
+  if (z.nextValue) return z.nextValue(p);
   let best = 0;
   for (const nz of z.next) {
     const v = zoneValue(p, nz, skill);
@@ -260,7 +275,7 @@ export function zoneValue(c: Vec, z: ZoneContext, skill: SkillProfile): number {
   const pot = potProbability(g, z.pocket, skill);
   if (pot <= 0) return 0;
   let v = pot * railComfort(c, g.cueDir) * ballComfort(dBall) * obstComfort;
-  if (z.next.length > 0) v *= cachedOnwardControl(g, z, skill);
+  if (z.next.length > 0 || z.nextValue) v *= cachedOnwardControl(g, z, skill);
   return v;
 }
 

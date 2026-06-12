@@ -8,7 +8,8 @@ import { sceneForStep } from '../src/scene';
 import { renderScene } from '../src/render';
 
 const seed = Number(process.env.SNAPSHOT_SEED ?? 12345);
-const puzzle = generatePuzzle(seed, 3, INTERMEDIATE)!;
+const ballCount = Number(process.env.SNAPSHOT_BALLS ?? 3);
+const puzzle = generatePuzzle(seed, ballCount, INTERMEDIATE)!;
 mkdirSync('/tmp/pps-snapshots', { recursive: true });
 const n = puzzle.pattern.shots.length;
 // step 0 = bare layout, 1 = overview, 2..n+1 = shots
