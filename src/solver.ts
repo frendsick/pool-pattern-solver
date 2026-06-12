@@ -109,7 +109,8 @@ interface PendingShot {
   potProb: number;
 }
 
-interface Node {
+/** Exported (with initialNodes/expandNodes) for the beam-step diagnostics. */
+export interface Node {
   score: number;
   /**
    * Keep-it-simple tie-break (Dr. Dave #1): score discounted by a tiny
@@ -488,10 +489,14 @@ function routeCandidates(
       const endSmp = sampleNear(samples, iv.s1);
       const sigEnd = distanceSigma(type, iv.s1, endSmp.rails, skill, g.dCueGhost);
       const sDeep = Math.max(iv.s0, Math.max(iv.peakS, iv.s1 - 2 * sigEnd));
+      // The interval's own best point (peakS — the sample that set the bar)
+      // is always on offer: without it a route that crosses the sweet spot
+      // between the fixed fractions gets judged a few inches off its best
+      // landing, and an honestly better line can lose to that discretization.
       const sTargets =
         ivLen < 6
           ? [iv.peakS]
-          : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65, sDeep].filter(
+          : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65, iv.peakS, sDeep].filter(
               (s, i, all) => all.findIndex((o) => Math.abs(o - s) < 2) === i,
             );
       for (const sTarget of sTargets) {
@@ -525,7 +530,7 @@ function routeCandidates(
   return out;
 }
 
-function expandNodes(
+export function expandNodes(
   nodes: Node[],
   nextBall: Ball,
   laterBalls: Ball[],
@@ -621,7 +626,7 @@ function expandPass(
   return children.slice(0, BEAM);
 }
 
-function initialNodes(
+export function initialNodes(
   layout: Layout,
   skill: SkillProfile,
   nextValue: NextValueFn | undefined,
@@ -630,7 +635,12 @@ function initialNodes(
   const others = layout.balls.slice(1).map((b) => b.pos);
   const nodes: Node[] = [];
   const angles = [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60];
-  const dists = [10, 16, 24, 34];
+  // 8" sits just clear of the ball-comfort knee (10" to the object ball):
+  // with ball in hand a player will happily place that close for a short,
+  // controlled pot — and it can be the only spot on a placement line that
+  // clears the rail band (image #30: the d=10 seed of the user's 5->TR
+  // follow landed 2.7" off the bottom cushion and railComfort buried it).
+  const dists = [8, 10, 16, 24, 34];
 
   for (const pocket of POCKETS) {
     const zc = zoneContext(first.pos, pocket, others);

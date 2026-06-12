@@ -138,7 +138,11 @@ export const INTERMEDIATE: SkillProfile = {
   positionTravelScale: 45,
   typeReliability: { stop: 0.99, follow: 0.98, lowTouch: 0.96, stun: 0.93, draw: 0.85 },
   drawRailRoom: 10,
-  hitComfort: 150,
+  // 250" (~6.3 m equivalent roll-out): a firm one-rail position follow is a
+  // routine stroke, not a power shot (image #30 — taxing it 9% overturned the
+  // along-the-window route). The monster strokes round 6 forbade sit far
+  // beyond this; they still decay to zero at hitMax.
+  hitComfort: 250,
   hitMax: 700,
 };
 
