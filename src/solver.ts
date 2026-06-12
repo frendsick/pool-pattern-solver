@@ -27,9 +27,8 @@ import {
   zoneValue,
 } from './zone';
 import { ValueSurface, gateFor, surfacesForLayout } from './value';
+import type { RouteLanding, ZoneTarget } from './route';
 import {
-  RouteLanding,
-  ZoneTarget,
   expectedNextPot,
   lineAngleDeg,
   pocketRisk,
@@ -40,7 +39,8 @@ import {
 import { initialNodes } from './seed';
 import { explainShot } from './explain';
 
-export { expectedNextPot, ZoneTarget, zoneTargets } from './route';
+export { expectedNextPot, zoneTargets } from './route';
+export type { ZoneTarget } from './route';
 export { initialNodes } from './seed';
 
 export interface PlannedShot {

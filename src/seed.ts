@@ -22,7 +22,8 @@ import {
 } from './shots';
 import { SkillProfile } from './skill';
 import { NextValueFn, zoneContext, zoneValue } from './zone';
-import { ZoneTarget, MAX_ROUTE } from './route';
+import { MAX_ROUTE } from './route';
+import type { ZoneTarget } from './route';
 import type { Node } from './solver';
 
 /**
