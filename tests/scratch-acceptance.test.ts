@@ -43,6 +43,8 @@ describe('golden: bottom-rail follow into the line (2026-06-12 round 12)', () =>
     // and the rebound runs ALONG the 8's shot line, not across the window
     expect(first.entryDeg).not.toBeNull();
     expect(first.entryDeg!).toBeLessThanOrEqual(20);
-    expect(first.eNext!).toBeGreaterThan(0.85);
+    // Bar re-priced 0.85 -> 0.82 when throwSigma went 0.012 -> 0.02 (round 16,
+    // mid-range pot honesty): same plan, every distant next-pot reads lower.
+    expect(first.eNext!).toBeGreaterThan(0.82);
   });
 });

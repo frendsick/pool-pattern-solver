@@ -308,12 +308,19 @@ export function expectedNextPot(
   const sigD = directionSigma(type, railsIntended, skill, shotDist, carom);
   let e = 0;
   for (const smp of perturbSamples(sigS, sigD)) {
-    const dir = rotate(baseDir, smp.dDir);
+    // Stop-shot kill drift is symmetric along the aim line (baseDir): an
+    // under-killed cue ball creeps FORWARD — toward the pocket the object
+    // ball just dropped in, where the trace prices the follow-in scratch —
+    // an over-killed one pulls back. Other types only drift along their
+    // intended direction; a negative sample means the ball barely moved.
+    const tRaw = travel + smp.dDist;
+    const flip = type === 'stop' && tRaw < 0;
+    const dir = rotate(flip ? scale(baseDir, -1) : baseDir, smp.dDir);
     const cv =
       curve && smp.dDir !== 0
         ? { offsets: curve.offsets.map((o) => rotate(o, smp.dDir)), arc: curve.arc }
         : curve;
-    const t = Math.max(0.1, travel + smp.dDist);
+    const t = Math.max(0.1, type === 'stop' ? Math.abs(tRaw) : tRaw);
     const tr = tracePath(start, dir, t, obstacles, 4, cv);
     if (tr.outcome === 'scratch') continue;
     e += smp.weight * zoneValue(tr.end, zc, skill);
@@ -340,12 +347,6 @@ interface RouteCandidate {
    * draw rail-room. Multiplies the landing-spread expectation into e.
    */
   ease: number;
-}
-
-function stopDir(g: ShotGeometry): Vec {
-  const t = g.tangent;
-  if (Math.hypot(t.x, t.y) > 0.5) return t;
-  return rotate(g.aim, Math.PI / 2);
 }
 
 /** Angle (deg) between a path direction and the line of a shot, mod 180. */
@@ -454,7 +455,8 @@ function routeCandidates(
       if (eff >= bar && (lenient || !railExcluded(landing, landingDir, LANDING_RAIL_INSET))) {
         out.push({
           node, zc, zcPot, nextPocket: pocket,
-          type: 'stop', dir: stopDir(g), travel: 0.5, rails: 0,
+          // Kill drift runs along the aim line (see expectedNextPot).
+          type: 'stop', dir: g.aim, travel: 0.5, rails: 0,
           landing, windowRef: v, zoneLen: null, entryDeg: null,
           proxy: node.score * eff,
           ease: skill.typeReliability.stop,

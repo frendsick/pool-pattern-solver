@@ -3,7 +3,7 @@
 // (ADR-0002). v1 ships one fixed intermediate profile.
 
 import { Vec } from './geometry';
-import { BALL_R, Pocket } from './table';
+import { BALL_R, Pocket, effectiveAcceptance } from './table';
 import { ShotGeometry, ShotType, approachDeviation, signedRollShare } from './shots';
 
 export interface SkillProfile {
@@ -60,6 +60,14 @@ export interface SkillProfile {
    */
   drawShortEase: number;
   /**
+   * Killing the cue ball dead gets harder with distance: the backspin decays
+   * on the way, so the speed/spin budget must zero out exactly at contact —
+   * a small imperfection leaves the cue ball drifting off the spot. Extra
+   * landing-sigma inches per inch of cue-to-ball distance for the stop shot
+   * (a 10″ stop is still surgical; a 40″ one is not).
+   */
+  stopDrift: number;
+  /**
    * Distance error damping per cushion. Cushions act as brakes (distance is
    * quadratic in speed, so the roll remaining after a cushion compresses any
    * speed error), which is WHY pros drive the cue ball into a rail behind
@@ -106,7 +114,7 @@ const deg = (d: number) => (d * Math.PI) / 180;
 
 export const INTERMEDIATE: SkillProfile = {
   aimSigma: 0.003,
-  throwSigma: 0.012,
+  throwSigma: 0.02,
   maxCut: deg(60),
   comfortCut: deg(48),
   cutSweetMax: deg(30),
@@ -124,6 +132,7 @@ export const INTERMEDIATE: SkillProfile = {
   railDirSigma: deg(0.9),
   drawDistFactor: 0.9,
   drawShortEase: 0.5, // 0.85^0.5 ~ 0.92 reliability for a very short draw
+  stopDrift: 0.06, // ~3.5" landing sigma on a 40" stop, ~1.6" at 10"
   railBrake: 0.65,
   railNoise: 0.6,
   positionTravelScale: 45,
@@ -175,7 +184,7 @@ export function potProbability(g: ShotGeometry, pocket: Pocket, skill: SkillProf
   if (g.cut >= skill.maxCut) return 0;
   if (g.cut >= skill.comfortCut && g.dCueGhost > skill.thinCutMaxDist) return 0;
   const dev = approachDeviation(g.aim, pocket);
-  if (dev >= pocket.acceptance) return 0;
+  if (dev >= effectiveAcceptance(pocket, g.dBallPocket)) return 0;
   const wEff = pocket.halfWidth * Math.pow(Math.cos(dev), 0.7);
   const allowedObError = Math.atan(wEff / Math.max(g.dBallPocket, 2 * BALL_R));
   const amplification = Math.max(g.dCueGhost, 2 * BALL_R) / (2 * BALL_R * Math.cos(g.cut));
@@ -292,7 +301,8 @@ export function distanceSigma(
 ): number {
   const base =
     (skill.speedSigma[type] * travel + skill.speedSigmaFloor[type]) *
-    shotDistFactor(type, shotDist, skill);
+      shotDistFactor(type, shotDist, skill) +
+    (type === 'stop' ? skill.stopDrift * shotDist : 0);
   return base * Math.pow(skill.railBrake, rails) + rails * skill.railNoise;
 }
 

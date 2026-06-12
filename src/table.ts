@@ -44,6 +44,27 @@ const side = (id: PocketId, x: number, y: number, label: string): Pocket => ({
   label,
 });
 
+/**
+ * The acceptance cone is a far-field property: at distance, an approach
+ * steeper than `acceptance` meets the jaw facings and stays out. Up close the
+ * cone logic stops applying — the visible mouth itself is the target, and a
+ * ball sitting near the jaws can be cut in at angles the cone forbids — so
+ * the effective cone widens toward ACCEPTANCE_NEAR as the ball approaches,
+ * fading back to the nominal cone over ~JAW_RANGE inches.
+ */
+const ACCEPTANCE_NEAR = (75 * Math.PI) / 180;
+// 9": a ball ~8.5" out at ~50 deg off the facing still drops (image #29 —
+// the hanging 7 by the bottom side pocket is "the easy stop shot"), while
+// the same approach 30" out keeps meeting the jaw facings.
+const JAW_RANGE = 9;
+
+export function effectiveAcceptance(p: Pocket, dBallPocket: number): number {
+  return (
+    p.acceptance +
+    (ACCEPTANCE_NEAR - p.acceptance) * Math.exp(-dBallPocket / JAW_RANGE)
+  );
+}
+
 export const POCKETS: Pocket[] = [
   corner('BL', 0, 0, 'bottom-left corner'),
   corner('BR', TABLE_W, 0, 'bottom-right corner'),

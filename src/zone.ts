@@ -18,6 +18,9 @@ import {
 } from './shots';
 import {
   SkillProfile,
+  DIST_NODES,
+  DIST_WEIGHTS,
+  distanceSigma,
   drawRailFactor,
   potProbability,
   powerFactor,
@@ -157,10 +160,20 @@ function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
  */
 function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): number {
   const sat = (v: number) => Math.min(1, v / CONTROL_SAT);
-  let best =
-    g.cut < STRAIGHT_CUT
-      ? sat(bestNextValue(g.ghost, z, skill)) * skill.typeReliability.stop
-      : 0;
+  let best = 0;
+  if (g.cut < STRAIGHT_CUT) {
+    // The stop exit drifts along the aim line with cue-to-ball distance
+    // (stopDrift) — same kill-drift the routes price: average the next value
+    // over the drift spread, with forward creep into the mouth a scratch.
+    const sig = distanceSigma('stop', 0.5, 0, skill, g.dCueGhost);
+    let v = 0;
+    for (let i = 0; i < DIST_NODES.length; i++) {
+      const p = add(g.ghost, scale(g.aim, DIST_NODES[i] * sig));
+      const scratched = dist(p, z.pocket.target) < z.pocket.captureRadius;
+      v += DIST_WEIGHTS[i] * (scratched ? 0 : bestNextValue(p, z, skill));
+    }
+    best = sat(v) * skill.typeReliability.stop;
+  }
   for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
     // Exit landings walked along the landing locus (caromLocus): the carom
     // path's tangent-line slide scales with travel, so every travel's landing
@@ -348,40 +361,70 @@ function buildPies(
   const inner = 2 * BALL_R + 0.3;
   const ghost = zoneGhost(z);
 
+  // A ray can hold SEVERAL in-bar runs — e.g. a rich stretch pinched in the
+  // middle by another ball's clearance ring (image #29 fallout, seed 63).
+  // Each run extends the lobe whose run on the previous ray it radially
+  // overlaps; runs that bridge nothing start a new lobe, lobes nothing
+  // extends are flushed. The dip itself stays out of every lobe, so the
+  // window still never bridges a dead stretch.
+  interface Lobe {
+    outer: Vec[];
+    inner: Vec[];
+    last: [number, number];
+  }
   const pies: Vec[][] = [];
-  let outerArc: Vec[] = [];
-  let innerArc: Vec[] = [];
-  const flush = () => {
-    if (outerArc.length >= 2) pies.push([...outerArc, ...innerArc.reverse()]);
-    outerArc = [];
-    innerArc = [];
+  let lobes: Lobe[] = [];
+  const flush = (l: Lobe) => {
+    if (l.outer.length >= 2) pies.push([...l.outer, ...l.inner.reverse()]);
   };
   for (let i = 0; i <= steps; i++) {
     const phi = -halfFan + (2 * halfFan * i) / steps;
     const dir = rotate(aimBack, phi);
-    let firstGood: number | null = null;
-    let lastGood: number | null = null;
+    const runs: [number, number][] = [];
+    let start: number | null = null;
+    let prev = 0;
     for (let r = inner; r <= maxRadius; r += 0.75) {
       const p = add(z.ball, scale(dir, r));
-      if (excludeRailBand && railExcluded(p, norm(sub(ghost, p)))) {
-        if (lastGood !== null) break;
-        continue;
-      }
-      if (zoneValue(p, z, skill) >= minValue) {
-        if (firstGood === null) firstGood = r;
-        lastGood = r;
-      } else if (lastGood !== null) {
-        break; // stop the ray at the first blocked point past a good run
+      const good =
+        (!excludeRailBand || !railExcluded(p, norm(sub(ghost, p)))) &&
+        zoneValue(p, z, skill) >= minValue;
+      if (good) {
+        if (start === null) start = r;
+        prev = r;
+      } else if (start !== null) {
+        runs.push([start, prev]);
+        start = null;
       }
     }
-    if (firstGood !== null && lastGood !== null) {
-      outerArc.push(add(z.ball, scale(dir, lastGood)));
-      innerArc.push(add(z.ball, scale(dir, firstGood)));
-    } else {
-      flush(); // dead direction: the window must not bridge across it
+    if (start !== null) runs.push([start, prev]);
+
+    const kept: Lobe[] = [];
+    const used = new Set<number>();
+    for (const l of lobes) {
+      const j = runs.findIndex(
+        (run, idx) => !used.has(idx) && run[0] <= l.last[1] && run[1] >= l.last[0],
+      );
+      if (j >= 0) {
+        used.add(j);
+        l.outer.push(add(z.ball, scale(dir, runs[j][1])));
+        l.inner.push(add(z.ball, scale(dir, runs[j][0])));
+        l.last = runs[j];
+        kept.push(l);
+      } else {
+        flush(l); // dead direction for this lobe: no bridging across it
+      }
     }
+    runs.forEach((run, idx) => {
+      if (used.has(idx)) return;
+      kept.push({
+        outer: [add(z.ball, scale(dir, run[1]))],
+        inner: [add(z.ball, scale(dir, run[0]))],
+        last: run,
+      });
+    });
+    lobes = kept;
   }
-  flush();
+  for (const l of lobes) flush(l);
   return pies.length > 0 ? pies : null;
 }
 
