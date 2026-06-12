@@ -74,7 +74,11 @@ describe('golden: easy short 8 ball, 9 far up-table (2026-06-12 round 10)', () =
     const draw = bestRoute('draw');
     const lowTouch = bestRoute('lowTouch');
     expect(draw.e).toBeGreaterThan(1.05 * lowTouch.e); // clear of the tie-break
-    expect(dist(draw.landing, ball9)).toBeLessThan(dist(lowTouch.landing, ball9) - 10);
+    // Well closer than the round-10 timid touch (54" out). Since the comfort
+    // knee moved to 300" (round 20) the touch of low can afford the deep
+    // landing too, so the closeness is asserted absolutely, not against it —
+    // the e comparison above still picks draw as the better play.
+    expect(dist(draw.landing, ball9)).toBeLessThan(45);
     // aggressive, but with margin: never on top of the 9
     expect(dist(draw.landing, ball9)).toBeGreaterThan(10);
   });

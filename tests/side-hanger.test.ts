@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { vec, norm, scale, sub, add, Vec } from '../src/geometry';
+import { vec, norm, scale, sub, Vec } from '../src/geometry';
 import { Layout, pocketById, effectiveAcceptance, POCKETS } from '../src/table';
 import { INTERMEDIATE, potProbability } from '../src/skill';
 import { shotGeometry } from '../src/shots';

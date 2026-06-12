@@ -100,6 +100,14 @@ export interface SkillProfile {
    */
   drawRailRoom: number;
   /**
+   * With ball in hand the player spots the cue ball for an exact, rehearsed
+   * shot, so the INTENDED carom path is far more predictable than from an
+   * arbitrary leave (no inherited angle to read off the table). Multiplier
+   * (<1) on the non-cushion part of the departure-direction error for routes
+   * played from hand; cushion rebound noise stays — that is the table's.
+   */
+  handDirEase: number;
+  /**
    * Hit-power comfort and ceiling, in equivalent roll-out inches of the hit
    * (hitDistance in shots.ts). Up to hitComfort the pot is unaffected; a
    * route's value decays to zero at hitMax — past that the shot needs to be
@@ -138,11 +146,14 @@ export const INTERMEDIATE: SkillProfile = {
   positionTravelScale: 45,
   typeReliability: { stop: 0.99, follow: 0.98, lowTouch: 0.96, stun: 0.93, draw: 0.85 },
   drawRailRoom: 10,
-  // 250" (~6.3 m equivalent roll-out): a firm one-rail position follow is a
+  handDirEase: 0.5,
+  // 300" (~7.6 m equivalent roll-out): a firm one-rail position follow is a
   // routine stroke, not a power shot (image #30 — taxing it 9% overturned the
-  // along-the-window route). The monster strokes round 6 forbade sit far
-  // beyond this; they still decay to zero at hitMax.
-  hitComfort: 250,
+  // along-the-window route; image #31 — the 13 deg cut top-rail fold down the
+  // next shot line prices at 383" and the user plays it on purpose). The
+  // monster strokes round 6 forbade sit far beyond this; they still decay to
+  // zero at hitMax.
+  hitComfort: 300,
   hitMax: 700,
 };
 
@@ -317,12 +328,14 @@ export function directionSigma(
   shotDist = 0,
   /** Shot geometry + pocket: adds the carom-direction term (caromDirSigma). */
   carom?: { g: ShotGeometry; pocket: Pocket },
+  /** Played from ball in hand: the spotted, rehearsed carom (handDirEase). */
+  fromHand = false,
 ): number {
   const stroke = skill.dirSigma[type] * shotDistFactor(type, shotDist, skill);
   const base = carom
     ? Math.hypot(stroke, caromDirSigma(carom.g, type, carom.pocket, skill))
     : stroke;
-  return base + rails * skill.railDirSigma;
+  return base * (fromHand ? skill.handDirEase : 1) + rails * skill.railDirSigma;
 }
 
 /**

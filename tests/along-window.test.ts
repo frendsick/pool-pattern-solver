@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { vec, norm, scale, sub, angleBetween } from '../src/geometry';
+import { vec, norm, sub, angleBetween } from '../src/geometry';
 import { Layout, pocketById } from '../src/table';
 import { INTERMEDIATE, powerFactor } from '../src/skill';
 import { solve } from '../src/solver';
@@ -28,11 +28,14 @@ describe('along-the-window follow (image #30, round 19)', () => {
 
   it('a 60" one-rail position follow is a routine stroke, a near-straight monster still dies', () => {
     // 20 deg cut keeps sin^2 + k^2 cos^2 ~ 0.19 of the hit: 61" of travel
-    // demands a ~320" equivalent roll-out — firm, not a power shot.
+    // demands a ~320" equivalent roll-out — firm, not a power shot. (Round
+    // 20 moved the comfort knee 250" -> 300": the 13 deg top-rail fold of
+    // image #31 prices at 383" and is a stroke the user plays on purpose.)
     expect(powerFactor(320, INTERMEDIATE)).toBeGreaterThan(0.97);
+    expect(powerFactor(383, INTERMEDIATE)).toBeGreaterThan(0.9);
     // The round-6 monsters (near-straight sideways routes) keep dying.
     expect(powerFactor(700, INTERMEDIATE)).toBe(0);
-    expect(powerFactor(550, INTERMEDIATE)).toBeLessThan(0.6);
+    expect(powerFactor(550, INTERMEDIATE)).toBeLessThan(0.65);
   });
 
   it('pots the 5 top-right and follows one rail along the window, not across it', () => {
