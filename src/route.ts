@@ -457,9 +457,19 @@ function nearestApproach(
  * trace does not see). BLOCK_MARGIN asks for a ball-radius of daylight past
  * the surface (center-to-center >= 3R) before the lane reads as open; a tight
  * but real lane (a follow that passes a rail's width clear) is left alone.
+ *
+ * BLOCK_FLOOR is deliberately gentle. This penalty rides on `score` (the
+ * run-out probability), so it competes head-to-head with the route economics
+ * that drive "keep it simple" — and a heavy multiplier does not just reject
+ * the threaded route, it can re-route the WHOLE rack into longer follows to
+ * dodge one near-miss (seed 775832494: a 0.5 floor turned a 4" stop-in into a
+ * 38" one-rail follow because a later draw skimmed the 7). A graze is a glance,
+ * not a scratch, so the worst case costs only a few percent — enough to break
+ * a genuine near-tie (seed 1147167, where the open line was within ~3% of the
+ * blocked one) without overriding a real difference in run-out value.
  */
 const BLOCK_MARGIN = BALL_R;
-const BLOCK_FLOOR = 0.5;
+const BLOCK_FLOOR = 0.93;
 
 /**
  * Penalty for a cue-ball path that threads close past balls it is not playing
