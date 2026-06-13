@@ -3,7 +3,7 @@
 // on toward the following ball's zone. The solver uses the continuous value
 // `zoneValue` (0 when infeasible); the polygon builder is for rendering only.
 
-import { Vec, add, sub, scale, norm, rotate, dist } from './geometry';
+import { Vec, add, sub, scale, norm, rotate, dist, cross } from './geometry';
 import { BALL_R, TABLE_W, TABLE_H, MIN_X, MAX_X, MIN_Y, MAX_Y, Pocket, onTable } from './table';
 import {
   ShotGeometry,
@@ -275,7 +275,7 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
  * the renderer draws.
  */
 function cachedOnwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): number {
-  const side = g.aim.x * g.cueDir.y - g.aim.y * g.cueDir.x >= 0 ? 1 : 0;
+  const side = cross(g.aim, g.cueDir) >= 0 ? 1 : 0;
   const cutB = Math.round(g.cut * (360 / Math.PI));
   const distB = Math.min(63, Math.round(g.dCueGhost / 4));
   const key = side * 65536 + cutB * 64 + distB;

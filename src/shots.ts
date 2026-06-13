@@ -96,9 +96,12 @@ export function departureDir(g: ShotGeometry, type: ShotType): Vec | null {
  */
 const POCKET_PACE = 1.25;
 
-/** Roll/draw share of the cue ball's post-contact speed along the aim line. */
+/**
+ * Roll/draw share MAGNITUDE of the cue ball's post-contact speed along the aim
+ * line — the unsigned twin of signedRollShare, which owns the actual values.
+ */
 function rollShare(type: ShotType): number {
-  return type === 'stun' ? 0 : type === 'lowTouch' ? (2 / 7) * LOW_TOUCH : 2 / 7;
+  return Math.abs(signedRollShare(type));
 }
 
 /**
