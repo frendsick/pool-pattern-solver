@@ -44,8 +44,10 @@ The runtime flow is:
 6. [src/route.ts](../src/route.ts) expands each node by finding cue-ball
    routes into the next ball's gated position zone.
 7. [src/solver.ts](../src/solver.ts) beam-prunes candidates, evaluates landing
-   uncertainty, finalizes the best pattern, and asks
-   [src/explain.ts](../src/explain.ts) for human-readable shot text.
+   uncertainty, finalizes the best pattern, stamps each shot's resolved
+   Position Zone (`resolveShotZones`, so the renderer draws the same zone the
+   route was scored against), and asks [src/explain.ts](../src/explain.ts) for
+   human-readable shot text.
 8. [src/scene.ts](../src/scene.ts) builds render scenes for the layout,
    overview, and each shot. [src/render.ts](../src/render.ts) renders pure
    SVG.
@@ -200,6 +202,12 @@ These parameters and formulas control the backward pass from the last ball:
   peak.
 - `gateFor`: selects the surface used to gate the previous ball's zone.
 - `surfacesForLayout`: per-layout cache shared by solver and renderer.
+- `zoneInputsForBall`: the single source of the rule "a ball's Position Zone
+  uses obstacles = the balls after it and gate = the next ball's value
+  surface". Read by the backward pass, the ball-in-hand seeds, the route
+  search, the renderer, and the explanation pass, so the obstacle slice and
+  gate index cannot drift between the window the search scores and the one
+  drawn.
 
 These surfaces are feasibility gates, not final pattern rankers. They should
 filter dead futures without replacing the route-level expected-value math.
@@ -282,8 +290,11 @@ These parameters affect global pattern selection:
 - `alignBoost`: sort-key-only preference for routes entering along the next
   shot line.
 - `expandNodes` and `expandPass`: strict/lenient expansion policy.
-- `remeasureZones`: final explanation metrics measured against the displayed
-  zone rather than an intermediate search bar.
+- `resolveShotZones`: resolves the chosen-pocket gated zone for each non-final
+  shot and stamps it on `PlannedShot.zone`, so the renderer and the explanation
+  read the same zone the route was scored against instead of rebuilding it. In
+  the same pass it remeasures zoneLen/entryDeg against that zone with the
+  pocket actually chosen — the role it previously had as `remeasureZones`.
 
 Only `score` is the reported run-out probability. `sortKey` is private and
 must remain a tie-break rather than a user-visible score.
@@ -315,7 +326,10 @@ but they affect how users reach and inspect solver decisions:
 - [src/main.ts](../src/main.ts): `MIN_BALLS`, `MAX_BALLS`, `DEFAULT_BALLS`,
   URL hash parsing, step navigation, and the selected fixed skill profile.
 - [src/scene.ts](../src/scene.ts): step semantics, zone display radius,
-  primary-zone cap from `windowRef`, and second-choice pocket expansion.
+  primary-zone cap from `windowRef`, and second-choice pocket expansion. Reads
+  the resolved `PlannedShot.zone` (and its own obstacles/gate for the alternate
+  pockets) rather than rebuilding the gated zone, so it no longer depends on
+  value.ts.
 - [src/render.ts](../src/render.ts): SVG scale, rail width, colors, markers,
   and ball drawing.
 - [src/explain.ts](../src/explain.ts): text thresholds and phrasing for shot
