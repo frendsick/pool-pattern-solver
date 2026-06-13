@@ -78,6 +78,10 @@ export interface SkillProfile {
   railBrake: number;
   /** Extra distance noise per cushion, inches. */
   railNoise: number;
+  /** Cut below which multi-rail follow off an inherited leave is rigid. */
+  straightFollowMultiRailCut: number;
+  /** Reliability for each extra rail on that near-straight follow route. */
+  straightFollowMultiRailReliability: number;
   /**
    * Comfort scale for the cue-ball travel a shot FORCES (pocket pace at the
    * cut angle): a cut that makes the cue ball run t inches whether you like
@@ -112,7 +116,8 @@ export interface SkillProfile {
    * (hitDistance in shots.ts). Up to hitComfort the pot is unaffected; a
    * route's value decays to zero at hitMax — past that the shot needs to be
    * hit so hard the pot stops being realistic. This is what forbids long
-   * sideways routes off a near-straight shot.
+   * sideways stun/draw routes off a near-straight shot while allowing
+   * straight-ish follow to be powered through top spin.
    */
   hitComfort: number;
   hitMax: number;
@@ -143,16 +148,15 @@ export const INTERMEDIATE: SkillProfile = {
   stopDrift: 0.06, // ~3.5" landing sigma on a 40" stop, ~1.6" at 10"
   railBrake: 0.65,
   railNoise: 0.6,
+  straightFollowMultiRailCut: deg(8),
+  straightFollowMultiRailReliability: 0.75,
   positionTravelScale: 45,
   typeReliability: { stop: 0.99, follow: 0.98, lowTouch: 0.96, stun: 0.93, draw: 0.85 },
   drawRailRoom: 10,
   handDirEase: 0.5,
-  // 300" (~7.6 m equivalent roll-out): a firm one-rail position follow is a
-  // routine stroke, not a power shot (image #30 — taxing it 9% overturned the
-  // along-the-window route; image #31 — the 13 deg cut top-rail fold down the
-  // next shot line prices at 383" and the user plays it on purpose). The
-  // monster strokes round 6 forbade sit far beyond this; they still decay to
-  // zero at hitMax.
+  // 300" (~7.6 m equivalent roll-out): a firm position follow is a routine
+  // stroke, not a power shot. Monster sideways routes from nearly straight
+  // hits still sit far beyond this and decay to zero at hitMax.
   hitComfort: 300,
   hitMax: 700,
 };
@@ -162,9 +166,9 @@ export const INTERMEDIATE: SkillProfile = {
  * (hitDist = equivalent roll-out of the hit, see hitDistance in shots.ts):
  * 1 inside the comfortable range, decaying to 0 at hitMax. The decay is
  * quadratic — slow at first, steep near the ceiling — so a routine power
- * follow around the table off a decent angle keeps most of its value (going
- * longer for a bigger window is often the BETTER play), while the monster
- * stroke a near-straight shot would need still dies.
+ * follow around the table keeps most of its value (going longer for a bigger
+ * window is often the BETTER play), while monster sideways routes from
+ * near-straight hits still die.
  */
 export function powerFactor(hitDist: number, skill: SkillProfile): number {
   if (hitDist <= skill.hitComfort) return 1;
@@ -286,6 +290,24 @@ export function routeReliability(
     f = Math.max(skill.drawShortEase, shotDist / skill.thinCutMaxDist);
   }
   return Math.pow(skill.typeReliability[type], f);
+}
+
+/**
+ * Execution cost for rigid multi-rail follow routes from near-straight cuts:
+ * with little cut angle, the cue ball mostly owns one narrow aim-line path,
+ * so asking it to run multiple cushions is much more sensitive than a normal
+ * one-rail follow or a fuller natural-angle route.
+ */
+export function railRouteFactor(
+  type: ShotType,
+  cut: number,
+  rails: number,
+  skill: SkillProfile,
+): number {
+  if (type !== 'follow' || rails <= 1 || cut >= skill.straightFollowMultiRailCut) {
+    return 1;
+  }
+  return skill.straightFollowMultiRailReliability ** (rails - 1);
 }
 
 /**

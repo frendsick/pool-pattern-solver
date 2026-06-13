@@ -229,19 +229,19 @@ export function minCueTravel(g: ShotGeometry, type: ShotType): number {
 
 /**
  * Equivalent roll-out distance of the HIT a route demands. The cue ball keeps
- * only the (sin² cut + k² cos² cut) share of the hit's distance budget, so a
- * chosen post-contact travel implies a hit that would roll a ball
- * cueTravel / share inches. A near-straight shot keeps almost nothing
- * (share ~ k² ~ 8% for follow/draw): sending the cue ball any real distance
- * sideways off one demands a monster hit, which makes the pot itself
- * unrealistic — such routes are priced by SkillProfile.hitComfort/hitMax.
+ * the tangent share (sin² cut) plus a roll share along the aim line. Follow
+ * is powered through controllable top spin (linear k), so long straight-ish
+ * follow is a real stroke; draw/low keep the older k² budget because backspin
+ * retention is the hard part. Near-straight sideways stun still demands a
+ * monster hit, and is priced by SkillProfile.hitComfort/hitMax.
  */
 export function hitDistance(g: ShotGeometry, type: ShotType, cueTravel: number): number {
   if (type === 'stop') return 0; // its firm stun is not a powered route
   const k = rollShare(type);
   const s2 = Math.sin(g.cut) ** 2;
   const c2 = Math.cos(g.cut) ** 2;
-  return cueTravel / Math.max(s2 + k * k * c2, 1e-9);
+  const rollPower = type === 'follow' ? k : k * k;
+  return cueTravel / Math.max(s2 + rollPower * c2, 1e-9);
 }
 
 export interface TraceResult {

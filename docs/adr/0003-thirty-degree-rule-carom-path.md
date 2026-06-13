@@ -34,9 +34,10 @@ with the table — exact under the mirror-law abstraction.
   the idealized carom ray.
 - Draw's tangent-line hook and follow's forward bend now render, matching how
   a player visualizes the shot.
-- The locus walk prices candidate landings exactly pre-rail; after a rail the
-  fold point differs from the true path's rail contact by the slide's lateral
-  offset (an inch or two) — second order against the 3–4″ landing floors.
-- `hitDistance` still prices the hit with the legacy sin²+k²cos² speed share;
-  physics says draw keeps less tangent speed (5/9). Recalibrating that is a
-  separate decision — flagged, not taken.
+- The locus walk prices candidate landings exactly pre-rail; curved routes
+  that reach a cushion are exact-sampled in route search because the true
+  rail contact can differ enough to expose or hide a one-rail position route.
+- `hitDistance` now lets follow use its top-spin roll share, but still prices
+  draw/low with the legacy sin²+k²cos² speed share; physics says draw keeps
+  less tangent speed (5/9). Recalibrating draw is a separate decision —
+  flagged, not taken.

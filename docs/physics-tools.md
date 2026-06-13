@@ -72,7 +72,8 @@ model (implemented there) is the standard replacement for the mirror law.
 - Open flags where an oracle comparison would pay off first: the draw carom
   line corresponds to ~5/9 of natural-roll backspin surviving to contact
   (full-spin draw would return much more sharply — 49° vs 26° off the
-  tangent at a 30° cut), and `hitDistance` still prices draw with the legacy
-  sin²+k²cos² speed share where physics says the slide eats tangent speed
-  (5/9 retention). Both are calibration decisions, not bugs: revisit with
+  tangent at a 30° cut), and `hitDistance` still prices draw/low with the
+  legacy sin²+k²cos² speed share where physics says the slide eats tangent
+  speed (5/9 retention). Follow is intentionally easier through its top-spin
+  roll share. These are calibration decisions, not bugs: revisit with
   pooltool data if the player flags draw realism.

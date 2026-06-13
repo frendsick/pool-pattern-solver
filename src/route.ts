@@ -14,7 +14,7 @@ import {
   distPointSegment,
   angleBetween,
 } from './geometry';
-import { Ball, Pocket, POCKETS } from './table';
+import { Ball, Pocket, POCKETS, MIN_X, MAX_X, MIN_Y, MAX_Y } from './table';
 import {
   ShotGeometry,
   ShotType,
@@ -33,6 +33,7 @@ import {
   drawRailFactor,
   perturbSamples,
   powerFactor,
+  railRouteFactor,
   routeReliability,
 } from './skill';
 import {
@@ -51,6 +52,7 @@ import {
 export const MAX_ROUTE = 220;
 export const WALK_STEP = 2.0;
 const ZONE_VMIN = 0.15;
+const SIMPLE_ROUTE_MAX_TRAVEL = 30;
 /**
  * The strict pass keeps landings this far clear of the awkward rail band the
  * drawn window hard-excludes (buildPie, railExcluded — cueing away from a
@@ -125,6 +127,13 @@ export interface RouteLanding {
    * draw rail-room. Multiplies the landing-spread expectation into e.
    */
   ease: number;
+  /**
+   * Control margin from the length of the path that stays inside the next
+   * window relative to the route's speed spread. Used in the final position
+   * expectation so a short crossing of a zone is not scored like a long run
+   * through it.
+   */
+  windowFactor: number;
 }
 
 interface PathSample {
@@ -154,16 +163,101 @@ interface Interval {
   entryDir: Vec;
 }
 
+function pathEndDir(points: Vec[], fallback: Vec): Vec {
+  for (let i = points.length - 2; i >= 0; i--) {
+    const seg = sub(points[i + 1], points[i]);
+    if (Math.hypot(seg.x, seg.y) > 1e-9) return norm(seg);
+  }
+  return fallback;
+}
+
+function onRail(p: Vec): boolean {
+  return (
+    p.x <= MIN_X + 1e-6 ||
+    p.x >= MAX_X - 1e-6 ||
+    p.y <= MIN_Y + 1e-6 ||
+    p.y >= MAX_Y - 1e-6
+  );
+}
+
+function firstRailDist(points: Vec[], rails: number): number | null {
+  if (rails <= 0) return null;
+  let travelled = 0;
+  for (let i = 0; i + 1 < points.length; i++) {
+    const segLen = dist(points[i], points[i + 1]);
+    travelled += segLen;
+    if (onRail(points[i + 1])) return travelled;
+  }
+  return null;
+}
+
+function exactCurveSamples(
+  g: ShotGeometry,
+  type: ShotType,
+  dir: Vec,
+  obstacles: Vec[],
+  zc: ZoneContext,
+  skill: SkillProfile,
+): PathSample[] {
+  const out: PathSample[] = [];
+  const ghost = zoneGhost(zc);
+  const minTravel = minCueTravel(g, type);
+  const rel = routeReliability(type, g.dCueGhost, skill);
+  for (let travel = WALK_STEP; travel <= MAX_ROUTE; travel += WALK_STEP) {
+    const curve = caromCurve(g, type, travel);
+    if (!curve) break;
+    const tr = tracePath(g.ghost, dir, travel, obstacles, 4, curve);
+    const dirAt = pathEndDir(tr.points, dir);
+    if (tr.outcome !== 'ok') {
+      out.push({
+        s: travel,
+        p: tr.end,
+        rails: tr.rails,
+        dirAt,
+        v: 0,
+        eff: 0,
+        inBand: false,
+      });
+      continue;
+    }
+    const p = tr.end;
+    const v = zoneValue(p, zc, skill);
+    const railDist = firstRailDist(tr.points, tr.rails);
+    const railFac = tr.rails === 0 ? 1 : drawRailFactor(type, railDist, skill);
+    const ease =
+      travel < minTravel
+        ? 0
+        : rel * railFac * railRouteFactor(type, g.cut, tr.rails, skill) *
+          powerFactor(hitDistance(g, type, travel), skill);
+    out.push({
+      s: travel,
+      p,
+      rails: tr.rails,
+      dirAt,
+      v,
+      eff: v * ease,
+      inBand: railExcluded(p, norm(sub(ghost, p)), LANDING_RAIL_INSET),
+    });
+  }
+  return out;
+}
+
 function samplePath(
   g: ShotGeometry,
   type: ShotType,
   obstacles: Vec[],
   zc: ZoneContext,
   skill: SkillProfile,
+  exactCurves = false,
 ): PathSample[] | null {
   const locus = caromLocus(g, type);
   if (!locus) return null;
+  const dir = departureDir(g, type);
+  if (!dir) return null;
   const tr = tracePath(g.ghost, locus.dir, MAX_ROUTE * locus.eta, obstacles, 3);
+  if ((exactCurves || tr.outcome !== 'ok') && caromCurve(g, type, MAX_ROUTE)) {
+    return exactCurveSamples(g, type, dir, obstacles, zc, skill);
+  }
   const out: PathSample[] = [];
   const ghost = zoneGhost(zc);
   const minTravel = minCueTravel(g, type);
@@ -178,6 +272,7 @@ function samplePath(
     if (segLen < 1e-9) continue;
     const d = norm(sub(b, a));
     const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
+    const railRoute = railRouteFactor(type, g.cut, i, skill);
     for (let t = i === 0 ? WALK_STEP : 0; t <= segLen; t += WALK_STEP) {
       const travel = (s + t) / locus.eta;
       const p = add(a, scale(d, t));
@@ -185,7 +280,8 @@ function samplePath(
       const ease =
         travel < minTravel
           ? 0
-          : rel * railFac * powerFactor(hitDistance(g, type, travel), skill);
+          : rel * railFac * railRoute *
+            powerFactor(hitDistance(g, type, travel), skill);
       out.push({
         s: travel, p, rails: i, dirAt: d,
         v,
@@ -241,6 +337,72 @@ function sampleNear(samples: PathSample[], s: number): PathSample {
     }
   }
   return best;
+}
+
+function ownBar(samples: PathSample[]): number {
+  let own = 0;
+  for (const q of samples) if (q.eff > own) own = q.eff;
+  return Math.max(ZONE_FLOOR, ZONE_RELATIVE * own);
+}
+
+function intervalTargets(
+  iv: Interval,
+  samples: PathSample[],
+  type: ShotType,
+  skill: SkillProfile,
+  shotDist: number,
+): number[] {
+  const ivLen = iv.s1 - iv.s0;
+  const endSmp = sampleNear(samples, iv.s1);
+  const sigEnd = distanceSigma(type, iv.s1, endSmp.rails, skill, shotDist);
+  const sDeep = Math.max(iv.s0, Math.max(iv.peakS, iv.s1 - 2 * sigEnd));
+  return ivLen < 6
+    ? [iv.peakS]
+    : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65, iv.peakS, sDeep].filter(
+        (s, i, all) => all.findIndex((o) => Math.abs(o - s) < 2) === i,
+      );
+}
+
+function bestShortSimpleMerit(
+  samples: PathSample[],
+  type: ShotType,
+  lenient: boolean,
+  skill: SkillProfile,
+  shotDist: number,
+): number {
+  let best = 0;
+  for (const iv of findIntervals(samples, ownBar(samples), !lenient)) {
+    const ivLen = iv.s1 - iv.s0;
+    for (const sTarget of intervalTargets(iv, samples, type, skill, shotDist)) {
+      const smp = sampleNear(samples, sTarget);
+      if (smp.rails !== 0 || sTarget > SIMPLE_ROUTE_MAX_TRAVEL) continue;
+      const sigS = distanceSigma(type, sTarget, smp.rails, skill, shotDist);
+      const stayFactor = Math.min(1, ivLen / (3 * sigS));
+      best = Math.max(best, smp.eff * stayFactor);
+    }
+  }
+  return best;
+}
+
+function redundantLongFollowFactor(
+  type: ShotType,
+  rails: number,
+  travel: number,
+  simpleEff: number,
+  routeEff: number,
+): number {
+  // If a short no-rail stop/stun/low/draw route already reaches about the
+  // same window, do not let a long rail-follow win on zone size alone.
+  if (type !== 'follow' || rails === 0 || travel < 35 || simpleEff <= 0 || routeEff <= 0) {
+    return 1;
+  }
+  const closeness = simpleEff / routeEff;
+  if (closeness < 0.55) return 1;
+  const closeT = Math.min(1, (closeness - 0.55) / 0.15);
+  const travelT = Math.min(1, (travel - 35) / 40);
+  const allowedVsSimple = 1 - 0.15 * travelT;
+  const capFactor = Math.min(1, (simpleEff * allowedVsSimple) / routeEff);
+  return 1 - (1 - capFactor) * closeT * travelT;
 }
 
 /** Angle (deg) between a path direction and the line of a shot, mod 180. */
@@ -340,7 +502,7 @@ export function routeCandidates(
     for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
       const dir = departureDir(g, type);
       if (!dir) continue;
-      const samples = samplePath(g, type, obstacles, t.zc, skill);
+      const samples = samplePath(g, type, obstacles, t.zc, skill, lenient);
       if (!samples) continue;
       for (const q of samples) {
         if (!lenient && q.inBand) continue;
@@ -350,6 +512,19 @@ export function routeCandidates(
     }
   }
   const nodeBar = Math.max(ZONE_FLOOR, ZONE_RELATIVE * nodeMax);
+  const simpleEffByTarget = new Map<ZoneTarget, number>();
+  const rememberSimple = (t: ZoneTarget, eff: number) => {
+    if (eff > (simpleEffByTarget.get(t) ?? 0)) simpleEffByTarget.set(t, eff);
+  };
+
+  for (const t of targets) {
+    if (stoppable) rememberSimple(t, stopEff(t));
+  }
+  for (const { t, type, samples } of sampled) {
+    if (type === 'follow') continue;
+    const simple = bestShortSimpleMerit(samples, type, lenient, skill, g.dCueGhost);
+    rememberSimple(t, simple);
+  }
 
   for (const t of targets) {
     const { pocket, zc, zcPot } = t;
@@ -366,6 +541,7 @@ export function routeCandidates(
           landing, windowRef: v, zoneLen: null, entryDeg: null,
           merit: eff,
           ease: skill.typeReliability.stop,
+          windowFactor: 1,
         });
       }
     }
@@ -373,28 +549,15 @@ export function routeCandidates(
 
   for (const { t, type, dir, samples } of sampled) {
     const { pocket, zc, zcPot } = t;
-    let bar = nodeBar;
-    if (lenient) {
-      let own = 0;
-      for (const q of samples) if (q.eff > own) own = q.eff;
-      bar = Math.max(ZONE_FLOOR, ZONE_RELATIVE * own);
-    }
+    const simpleHere = simpleEffByTarget.get(t) ?? 0;
+    const bar = lenient ? ownBar(samples) : nodeBar;
     const intervals = findIntervals(samples, bar, !lenient);
     for (const iv of intervals) {
       const ivLen = iv.s1 - iv.s0;
-      const endSmp = sampleNear(samples, iv.s1);
-      const sigEnd = distanceSigma(type, iv.s1, endSmp.rails, skill, g.dCueGhost);
-      const sDeep = Math.max(iv.s0, Math.max(iv.peakS, iv.s1 - 2 * sigEnd));
-      const sTargets =
-        ivLen < 6
-          ? [iv.peakS]
-          : [iv.s0 + ivLen * 0.4, iv.s0 + ivLen * 0.65, iv.peakS, sDeep].filter(
-              (s, i, all) => all.findIndex((o) => Math.abs(o - s) < 2) === i,
-            );
-      for (const sTarget of sTargets) {
+      for (const sTarget of intervalTargets(iv, samples, type, skill, g.dCueGhost)) {
         const smp = sampleNear(samples, sTarget);
-        const ease = smp.v > 0 ? smp.eff / smp.v : 0;
-        if (ease <= 0.02) continue;
+        const baseEase = smp.v > 0 ? smp.eff / smp.v : 0;
+        if (baseEase <= 0.02) continue;
         const rails = smp.rails;
         const tr = tracePath(
           g.ghost, dir, sTarget, obstacles, 4,
@@ -403,6 +566,16 @@ export function routeCandidates(
         if (tr.outcome !== 'ok') continue;
         const sigS = distanceSigma(type, sTarget, rails, skill, g.dCueGhost);
         const stayFactor = Math.min(1, ivLen / (3 * sigS));
+        const windowFactor = Math.sqrt(stayFactor);
+        const simpleFactor = redundantLongFollowFactor(
+          type,
+          rails,
+          sTarget,
+          simpleHere,
+          smp.eff * stayFactor,
+        );
+        const ease = baseEase * simpleFactor;
+        if (ease <= 0.02) continue;
         out.push({
           zc, zcPot, nextPocket: pocket,
           type, dir, travel: sTarget, rails,
@@ -410,8 +583,9 @@ export function routeCandidates(
           windowRef: Math.min(iv.peakV, smp.v / ZONE_RELATIVE),
           zoneLen: ivLen,
           entryDeg: lineAngleDeg(iv.entryDir, zc),
-          merit: smp.eff * stayFactor,
+          merit: smp.eff * simpleFactor * stayFactor,
           ease,
+          windowFactor,
         });
       }
     }

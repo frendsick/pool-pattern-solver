@@ -109,6 +109,8 @@ reliability, landing spread, and zone feasibility:
 - `stopDrift`: distance-dependent drift for stop shots.
 - `railBrake`: cushion damping of distance error.
 - `railNoise`: extra distance noise per cushion.
+- `straightFollowMultiRailCut` and `straightFollowMultiRailReliability`:
+  execution cost for multi-rail follow from very straight cuts.
 - `positionTravelScale`: discount for cue-ball travel forced by the pot.
 - `typeReliability`: clean execution reliability by shot type.
 - `drawRailRoom`: first-rail room needed for draw and touch-of-low.
@@ -224,13 +226,14 @@ and position expectation:
 - `MAX_ROUTE`: maximum cue-ball travel explored for a route.
 - `WALK_STEP`: sampling interval along route paths.
 - `ZONE_VMIN`: minimum effective value while identifying usable path runs.
-- `ROUTE_RELATIVE`: route-level bar relative to the best effective candidate.
+- `SIMPLE_ROUTE_MAX_TRAVEL`: maximum no-rail stop/stun/low/draw travel that
+  can count as the simple baseline when pricing redundant long rail-follow.
 - `LANDING_RAIL_INSET`: strict-pass clearance from awkward rail-band landings.
 - `SCRATCH_MARGIN`: near-pocket scratch-risk margin.
 - `zoneTargets`: which pockets are eligible for the next ball.
 - `routeCandidates`: stop/follow/stun/low/draw candidate enumeration,
-  effective-value bars, interval selection, deep-end landing candidates, and
-  route ease.
+  effective-value bars, interval selection, deep-end landing candidates,
+  simple-route comparison for redundant rail-follow, and route ease.
 - `expectedNextPot`: landing-spread quadrature used for final position value.
 - `pocketRisk`: deterministic scratch-risk penalty for paths near pocket
   mouths.

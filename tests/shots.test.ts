@@ -102,12 +102,15 @@ describe('hitDistance', () => {
     return shotGeometry(c, ball, ts)!;
   };
 
-  it('a near-straight shot demands a monster hit for any real travel', () => {
-    // straight follow keeps only (2/7)^2 ~ 8% of the hit's distance budget
-    expect(hitDistance(gAt(0), 'follow', 40)).toBeCloseTo(40 / (4 / 49), 0);
-    // the same sideways travel off a healthy angle is a normal stroke
+  it('straight follow is a controlled top-spin stroke; near-straight sideways stun is not', () => {
+    // Straight follow can be powered through the roll component: this is a
+    // routine top-spin stroke, not the same as trying to move sideways.
+    expect(hitDistance(gAt(0), 'follow', 40)).toBeCloseTo(40 / (2 / 7), 0);
+    expect(hitDistance(gAt(5), 'follow', 40)).toBeLessThan(160);
+    // The same travel off a healthy angle is also a normal stroke.
     expect(hitDistance(gAt(40), 'follow', 40)).toBeLessThan(100);
-    expect(hitDistance(gAt(5), 'follow', 40)).toBeGreaterThan(400);
+    // But near-straight tangent/stun movement is still a monster.
+    expect(hitDistance(gAt(5), 'stun', 40)).toBeGreaterThan(400);
   });
 
   it('scales linearly with the chosen travel', () => {

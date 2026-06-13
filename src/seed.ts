@@ -13,7 +13,7 @@ import {
   angleBetween,
   dist,
 } from './geometry';
-import { Layout, Pocket, POCKETS } from './table';
+import { Layout, Pocket, POCKETS, MIN_X, MAX_X, MIN_Y, MAX_Y } from './table';
 import {
   ShotType,
   shotGeometry,
@@ -32,6 +32,9 @@ import type { Node } from './solver';
  */
 const ALIGN_MAX_DEG = 14;
 const ALIGN_MAX_OFF = 10;
+const GRID_SEEDS_PER_POCKET = 12;
+const RAIL_SIDE_SEEDS_PER_POCKET = 8;
+const ALIGNED_SEEDS_PER_POCKET = 8;
 
 /**
  * Signed placement angles (degrees off straight-in; the magnitude is the cut,
@@ -113,8 +116,21 @@ export function initialNodes(
   const first = layout.balls[0];
   const others = layout.balls.slice(1).map((b) => b.pos);
   const nodes: Node[] = [];
-  const angles = [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60];
+  const angles = [
+    -60, -45, -30, -25, -20, -15, -10, -7, -5, -3,
+    0,
+    3, 5, 7, 10, 15, 20, 25, 30, 45, 60,
+  ];
   const dists = [8, 10, 16, 24, 34];
+
+  const railSideSeed = (n: Node): boolean => {
+    const railBand = 10;
+    if (first.pos.x < MIN_X + railBand && n.pending.cuePos.x < first.pos.x + 2) return true;
+    if (first.pos.x > MAX_X - railBand && n.pending.cuePos.x > first.pos.x - 2) return true;
+    if (first.pos.y < MIN_Y + railBand && n.pending.cuePos.y < first.pos.y + 2) return true;
+    if (first.pos.y > MAX_Y - railBand && n.pending.cuePos.y > first.pos.y - 2) return true;
+    return false;
+  };
 
   for (const pocket of POCKETS) {
     const zc = zoneContext(first.pos, pocket, others);
@@ -147,7 +163,12 @@ export function initialNodes(
       }
     }
     pocketNodes.sort((a, b) => b.score - a.score);
-    nodes.push(...pocketNodes.slice(0, 12));
+    const pickedGrid = pocketNodes.slice(0, GRID_SEEDS_PER_POCKET);
+    nodes.push(...pickedGrid);
+    const railSideNodes = pocketNodes
+      .filter((n) => railSideSeed(n) && !pickedGrid.includes(n))
+      .slice(0, RAIL_SIDE_SEEDS_PER_POCKET);
+    nodes.push(...railSideNodes);
 
     const alignedNodes: Node[] = [];
     for (const aDeg of alignedCuts(first.pos, pocket, ghost, aim, others, nextTargets, skill)) {
@@ -158,7 +179,7 @@ export function initialNodes(
       }
     }
     alignedNodes.sort((a, b) => b.score - a.score);
-    nodes.push(...alignedNodes.slice(0, 8));
+    nodes.push(...alignedNodes.slice(0, ALIGNED_SEEDS_PER_POCKET));
   }
   return nodes;
 }

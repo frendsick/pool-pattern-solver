@@ -24,6 +24,7 @@ import {
   drawRailFactor,
   potProbability,
   powerFactor,
+  railRouteFactor,
   routeReliability,
 } from './skill';
 
@@ -165,13 +166,13 @@ function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
  * discounted by (a) the travel the pot FORCES on the cue ball at this cut
  * (pocket pace, minCueTravel — a thin cut makes the cue ball run whether you
  * like it or not) and (b) the type's execution reliability (draw is always
- * the toughest). Travel chosen beyond the forced minimum costs nothing here —
- * the window stays long along the shot line and natural multi-rail routes
- * count fully; executing the chosen distance is the Route's problem — EXCEPT
- * for the hit power it demands (powerFactor): a near-straight shot keeps so
- * little of the hit that long exits off it would need a monster stroke, so
- * they stop counting. A near-straight shot only offers the aim line itself,
- * which is exactly why straight position is rigid.
+ * the toughest). Travel chosen beyond the forced minimum mostly remains the
+ * Route's problem, but the gate does price hit power (powerFactor) and rigid
+ * near-straight multi-rail follow (railRouteFactor). Straight-ish follow can
+ * be powered through top spin, but near-straight sideways stun/draw exits
+ * still need a monster stroke, so they stop counting. A near-straight shot
+ * mostly offers the aim line itself, which is exactly why straight position
+ * is rigid.
  */
 function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): number {
   const sat = (v: number) => Math.min(1, v / CONTROL_SAT);
@@ -212,13 +213,15 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
       if (segLen < 1e-9) continue;
       const d = norm(sub(b, a));
       const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
+      const railRoute = railRouteFactor(type, g.cut, i, skill);
       for (let t = CONTROL_STEP; t <= segLen; t += CONTROL_STEP) {
         const travel = (s + t) / locus.eta;
         if (travel < minTravel) continue;
         const pf = powerFactor(hitDistance(g, type, travel), skill);
         if (pf <= 0) break outer; // farther only needs more power
         const v =
-          sat(bestNextValue(add(a, scale(d, t)), z, skill)) * cap * pf * railFac;
+          sat(bestNextValue(add(a, scale(d, t)), z, skill)) *
+          cap * pf * railFac * railRoute;
         if (v > best) best = v;
         if (best >= cap - 1e-9) break outer; // this exit is saturated
       }

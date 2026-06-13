@@ -2,7 +2,14 @@ import { describe, it, expect } from 'vitest';
 import { vec, add, scale, rotate } from '../src/geometry';
 import { pocketById, BALL_R } from '../src/table';
 import { shotGeometry } from '../src/shots';
-import { potProbability, distanceSigma, directionSigma, powerFactor, INTERMEDIATE } from '../src/skill';
+import {
+  potProbability,
+  distanceSigma,
+  directionSigma,
+  powerFactor,
+  railRouteFactor,
+  INTERMEDIATE,
+} from '../src/skill';
 
 describe('pot probability model', () => {
   const ball = vec(50, 25);
@@ -74,6 +81,16 @@ describe('position error model', () => {
     expect(s('lowTouch')).toBeGreaterThan(s('follow'));
     expect(s('lowTouch')).toBeLessThan(s('stun'));
     expect(s('lowTouch')).toBeLessThan(s('draw'));
+  });
+
+  it('multi-rail follow is taxed only for near-straight routes', () => {
+    expect(railRouteFactor('follow', 0, 0, INTERMEDIATE)).toBe(1);
+    expect(railRouteFactor('follow', 0, 1, INTERMEDIATE)).toBe(1);
+    expect(railRouteFactor('follow', 0, 2, INTERMEDIATE)).toBe(
+      INTERMEDIATE.straightFollowMultiRailReliability,
+    );
+    expect(railRouteFactor('follow', INTERMEDIATE.straightFollowMultiRailCut + 0.01, 2, INTERMEDIATE)).toBe(1);
+    expect(railRouteFactor('stun', 0, 2, INTERMEDIATE)).toBe(1);
   });
 });
 
