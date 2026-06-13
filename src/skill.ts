@@ -4,7 +4,14 @@
 
 import { Vec } from './geometry';
 import { BALL_R, Pocket, effectiveAcceptance } from './table';
-import { ShotGeometry, ShotType, approachDeviation, signedRollShare } from './shots';
+import {
+  ShotGeometry,
+  ShotType,
+  approachDeviation,
+  signedRollShare,
+  minCueTravel,
+  hitDistance,
+} from './shots';
 
 export interface SkillProfile {
   /** Std dev of the cue aim direction error, radians. */
@@ -308,6 +315,36 @@ export function railRouteFactor(
     return 1;
   }
   return skill.straightFollowMultiRailReliability ** (rails - 1);
+}
+
+/**
+ * Route ease at a chosen travel: the type's execution reliability, the
+ * hit-power price the travel demands at this cut, and draw rail-room (see
+ * CONTEXT.md: Route). This is the factor that prices a position route's
+ * P(reach the next zone) on the effective scale (zone value x ease), and it is
+ * 0 below the pocket-pace minimum travel (the cue ball cannot travel less and
+ * still drive the object ball home with margin). The single source for what
+ * the route search (route.ts) and the onward-control gate (zone.ts) each
+ * computed inline three times. `rails` and `firstRailDist` come from the
+ * caller's path trace: the segment index and first-segment length on a locus
+ * walk, the total rail count and first-rail arc length on an exact-curve walk.
+ */
+export function routeEase(
+  g: ShotGeometry,
+  type: ShotType,
+  travel: number,
+  rails: number,
+  firstRailDist: number | null,
+  skill: SkillProfile,
+): number {
+  if (travel < minCueTravel(g, type)) return 0;
+  const railFac = rails === 0 ? 1 : drawRailFactor(type, firstRailDist, skill);
+  return (
+    routeReliability(type, g.dCueGhost, skill) *
+    railFac *
+    railRouteFactor(type, g.cut, rails, skill) *
+    powerFactor(hitDistance(g, type, travel), skill)
+  );
 }
 
 /**
