@@ -21,12 +21,11 @@ import {
 } from './shots';
 import { SkillProfile } from './skill';
 import {
-  NextValueFn,
   zoneBar,
   zoneContext,
   zoneValue,
 } from './zone';
-import { ValueSurface, gateFor, surfacesForLayout } from './value';
+import { ValueSurface, gateFor, surfacesForLayout, zoneInputsForBall } from './value';
 import type { RouteLanding, ZoneTarget } from './route';
 import {
   clearanceRisk,
@@ -156,17 +155,19 @@ interface RouteCandidate extends RouteLanding {
 
 export function expandNodes(
   nodes: Node[],
-  nextBall: Ball,
-  laterBalls: Ball[],
+  balls: Ball[],
+  m: number,
+  surfaces: (ValueSurface | null)[],
   skill: SkillProfile,
-  nextValue: NextValueFn | undefined,
 ): Node[] {
-  const targets = zoneTargets(nextBall, laterBalls, skill, nextValue);
+  const targets = zoneTargets(balls, m, surfaces, skill);
+  const { obstacles: laterPos } = zoneInputsForBall(balls, m, surfaces);
+  const nextBall = balls[m];
   // Strict pass first: every pocket held to the best pocket's bar. Only when
   // nothing clears it (the good pocket is unreachable from every node) do the
   // per-pocket fallback bars get a turn, so the layout still solves.
   for (const lenient of [false, true]) {
-    const children = expandPass(nodes, nextBall, laterBalls, targets, skill, lenient);
+    const children = expandPass(nodes, nextBall, laterPos, targets, skill, lenient);
     if (children.length > 0 || lenient) return children;
   }
   return [];
@@ -175,12 +176,11 @@ export function expandNodes(
 function expandPass(
   nodes: Node[],
   nextBall: Ball,
-  laterBalls: Ball[],
+  laterPos: Vec[],
   targets: ZoneTarget[],
   skill: SkillProfile,
   lenient: boolean,
 ): Node[] {
-  const laterPos = laterBalls.map((b) => b.pos);
   const obstacles = [nextBall.pos, ...laterPos];
   const candidates: RouteCandidate[] = [];
   for (const node of nodes) {
@@ -345,16 +345,11 @@ export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
   // Ball-in-hand placement may be engineered against the SECOND ball's shot
   // lines (shotline-aligned seeds): hand the next zone targets to the seeder.
   const nextTargets =
-    layout.balls.length > 1
-      ? zoneTargets(layout.balls[1], layout.balls.slice(2), skill, gateFor(surfaces, 2))
-      : [];
-  let nodes = initialNodes(layout, skill, gateFor(surfaces, 1), nextTargets);
+    layout.balls.length > 1 ? zoneTargets(layout.balls, 1, surfaces, skill) : [];
+  let nodes = initialNodes(layout, skill, surfaces, nextTargets);
   if (nodes.length === 0) return null;
   for (let k = 1; k < layout.balls.length; k++) {
-    nodes = expandNodes(
-      nodes, layout.balls[k], layout.balls.slice(k + 1), skill,
-      gateFor(surfaces, k + 1),
-    );
+    nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
     if (nodes.length === 0) return null;
   }
   return finalize(nodes[0], skill, surfaces);

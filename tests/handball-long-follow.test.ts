@@ -5,7 +5,7 @@ import { INTERMEDIATE } from '../src/skill';
 import { routeCandidates, zoneTargets } from '../src/route';
 import { solve } from '../src/solver';
 import { shotGeometry, caromCurve, tracePath } from '../src/shots';
-import { surfacesForLayout, gateFor } from '../src/value';
+import { surfacesForLayout } from '../src/value';
 
 const layout: Layout = {
   seed: 791175205,
@@ -31,7 +31,7 @@ function handGeometry(pid: 'BL' | 'TS', signedCutDeg: number) {
 
 function firstShotTargets(balls = layout.balls) {
   const surfaces = surfacesForLayout({ ...layout, balls }, INTERMEDIATE);
-  return zoneTargets(balls[1], balls.slice(2), INTERMEDIATE, gateFor(surfaces, 2));
+  return zoneTargets(balls, 1, surfaces, INTERMEDIATE);
 }
 
 function railPoints(path: { x: number; y: number }[]) {

@@ -37,7 +37,6 @@ import {
   routeReliability,
 } from './skill';
 import {
-  NextValueFn,
   ZoneContext,
   ZONE_FLOOR,
   ZONE_RELATIVE,
@@ -48,6 +47,7 @@ import {
   zonePeak,
   zoneValue,
 } from './zone';
+import { ValueSurface, zoneInputsForBall } from './value';
 
 export const MAX_ROUTE = 220;
 export const WALK_STEP = 2.0;
@@ -88,18 +88,19 @@ export interface ZoneTarget {
 }
 
 export function zoneTargets(
-  nextBall: Ball,
-  laterBalls: Ball[],
+  balls: Ball[],
+  m: number,
+  surfaces: (ValueSurface | null)[],
   skill: SkillProfile,
-  nextValue: NextValueFn | undefined,
 ): ZoneTarget[] {
-  const zoneObstacles = laterBalls.map((b) => b.pos);
+  const nextBall = balls[m];
+  const { obstacles, gate } = zoneInputsForBall(balls, m, surfaces);
   const found: ZoneTarget[] = [];
   for (const pocket of POCKETS) {
-    const zc = zoneContext(nextBall.pos, pocket, zoneObstacles, [], nextValue);
+    const zc = zoneContext(nextBall.pos, pocket, obstacles, [], gate);
     if (!zc.ballPathClear) continue;
     if (zonePeak(zc, skill) <= 0) continue;
-    found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, zoneObstacles) });
+    found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, obstacles) });
   }
   return found;
 }

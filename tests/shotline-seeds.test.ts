@@ -13,7 +13,7 @@ import { Layout, pocketById } from '../src/table';
 import { INTERMEDIATE, directionSigma } from '../src/skill';
 import { initialNodes, expandNodes, zoneTargets } from '../src/solver';
 import { shotGeometry } from '../src/shots';
-import { surfacesForLayout, gateFor } from '../src/value';
+import { surfacesForLayout } from '../src/value';
 
 const layout: Layout = {
   seed: 0,
@@ -43,12 +43,10 @@ describe('ball-in-hand carom accuracy (handDirEase)', () => {
 
 describe('shotline-aligned seeds (image #31)', () => {
   const surfaces = surfacesForLayout(layout, INTERMEDIATE);
-  const targets = zoneTargets(
-    layout.balls[1], layout.balls.slice(2), INTERMEDIATE, gateFor(surfaces, 2),
-  );
+  const targets = zoneTargets(layout.balls, 1, surfaces, INTERMEDIATE);
 
   it('seeds the 5 -> TS fold cut the fixed grid misses', () => {
-    const nodes = initialNodes(layout, INTERMEDIATE, gateFor(surfaces, 1), targets);
+    const nodes = initialNodes(layout, INTERMEDIATE, surfaces, targets);
     const tsCuts = nodes
       .filter((n) => n.pending.pocket.id === 'TS')
       .map((n) => (n.pending.g.cut * 180) / Math.PI);
@@ -56,7 +54,7 @@ describe('shotline-aligned seeds (image #31)', () => {
     // at a ~11-16 deg cut; the grid only offers 10 and 20.
     expect(tsCuts.some((c) => c > 10.5 && c < 16.5)).toBe(true);
     // and without next-ball targets the grid alone does not have it
-    const bare = initialNodes(layout, INTERMEDIATE, gateFor(surfaces, 1));
+    const bare = initialNodes(layout, INTERMEDIATE, surfaces);
     const bareCuts = bare
       .filter((n) => n.pending.pocket.id === 'TS')
       .map((n) => (n.pending.g.cut * 180) / Math.PI);
@@ -64,10 +62,8 @@ describe('shotline-aligned seeds (image #31)', () => {
   });
 
   it('the top-rail fold down the 6 -> BR line is generated and priced as a real route', () => {
-    const nodes = initialNodes(layout, INTERMEDIATE, gateFor(surfaces, 1), targets);
-    const children = expandNodes(
-      nodes, layout.balls[1], layout.balls.slice(2), INTERMEDIATE, gateFor(surfaces, 2),
-    );
+    const nodes = initialNodes(layout, INTERMEDIATE, surfaces, targets);
+    const children = expandNodes(nodes, layout.balls, 1, surfaces, INTERMEDIATE);
     const line = norm(sub(pocketById('BR').target, layout.balls[1].pos));
     const folds = children.filter((n) => {
       const s = n.done[0];
