@@ -124,6 +124,20 @@ decisions: `DIST_NODES`, `DIST_WEIGHTS`, `DIR_NODES`, and `DIR_WEIGHTS`.
 They define the deterministic landing-error integration used when evaluating
 position routes.
 
+[src/skill.ts](../src/skill.ts) also owns two shared route-pricing primitives,
+the single source for what the route search and the onward-control gate used to
+inline separately:
+
+- `routeEase`: a position route's execution price at a chosen travel — type
+  reliability x draw rail-room x rail-route x hit-power, 0 below pocket-pace
+  travel. Used by the route search (route.ts) and the gate (zone.ts
+  onwardControl).
+- `walkExit`: walks a traced exit path off the ghost as a generator, yielding
+  one routeEase-priced step per `step` inches; the route search collects all
+  steps, the gate reduces to a running max with early stop. The locus walk both
+  shared. The exact-curve walk (route.ts exactCurveSamples) still retraces per
+  travel but prices via `routeEase`.
+
 ### Table And Pocket Geometry
 
 Authoritative source: [src/table.ts](../src/table.ts).
