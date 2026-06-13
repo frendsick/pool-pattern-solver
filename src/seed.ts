@@ -11,6 +11,7 @@ import {
   rotate,
   sub,
   angleBetween,
+  cross,
   dist,
 } from './geometry';
 import { Layout, Pocket, POCKETS, MIN_X, MAX_X, MIN_Y, MAX_Y } from './table';
@@ -88,7 +89,7 @@ function alignedCuts(
             const rel = sub(s.anchor, a);
             const along = rel.x * d.x + rel.y * d.y;
             if (along < -8 || along > segLen + 20) continue;
-            const off = Math.abs(rel.x * d.y - rel.y * d.x);
+            const off = Math.abs(cross(rel, d));
             if (off > ALIGN_MAX_OFF) continue;
             best = Math.min(best, deg + 1.5 * off);
           }
