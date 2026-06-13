@@ -10,7 +10,6 @@ import {
   ShotType,
   shotGeometry,
   minCueTravel,
-  hitDistance,
   tracePath,
   caromLocus,
   cuePathClear,
@@ -21,10 +20,8 @@ import {
   DIST_NODES,
   DIST_WEIGHTS,
   distanceSigma,
-  drawRailFactor,
   potProbability,
-  powerFactor,
-  railRouteFactor,
+  routeEase,
   routeReliability,
 } from './skill';
 
@@ -202,8 +199,8 @@ function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
  * (pocket pace, minCueTravel — a thin cut makes the cue ball run whether you
  * like it or not) and (b) the type's execution reliability (draw is always
  * the toughest). Travel chosen beyond the forced minimum mostly remains the
- * Route's problem, but the gate does price hit power (powerFactor) and rigid
- * near-straight multi-rail follow (railRouteFactor). Straight-ish follow can
+ * Route's problem, but the gate does price hit power and rigid near-straight
+ * multi-rail follow (both via routeEase). Straight-ish follow can
  * be powered through top spin, but near-straight sideways stun/draw exits
  * still need a monster stroke, so they stop counting. A near-straight shot
  * mostly offers the aim line itself, which is exactly why straight position
@@ -232,31 +229,33 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
     const locus = caromLocus(g, type);
     if (!locus) continue;
     const minTravel = minCueTravel(g, type);
-    const cap =
-      Math.exp(-minTravel / skill.positionTravelScale) *
-      routeReliability(type, g.dCueGhost, skill);
+    // cap is the exit's ceiling: the pot-forced minimum travel discounted by
+    // positionTravelScale, times the type's reliability. routeEase carries the
+    // per-step rail-room, rail-route and hit-power price (draw rail-room is why
+    // an early first cushion is discounted); forced = cap without reliability,
+    // since routeEase already multiplies reliability back in.
+    const forced = Math.exp(-minTravel / skill.positionTravelScale);
+    const cap = forced * routeReliability(type, g.dCueGhost, skill);
     if (cap <= best) continue; // cannot beat what another exit already offers
     const tr = tracePath(g.ghost, locus.dir, CONTROL_RANGE * locus.eta, z.obstacles, 3);
-    // Draw action is compromised when the first cushion arrives early: the
-    // post-rail part of the exit line is discounted (drawRailFactor).
     const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
     let s = 0; // cumulative travel at the start of the segment
+    let priced = false; // have we passed the pot-forced minimum travel yet?
     outer: for (let i = 0; i + 1 < tr.points.length; i++) {
       const a = tr.points[i];
       const b = tr.points[i + 1];
       const segLen = dist(a, b);
       if (segLen < 1e-9) continue;
       const d = norm(sub(b, a));
-      const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
-      const railRoute = railRouteFactor(type, g.cut, i, skill);
       for (let t = CONTROL_STEP; t <= segLen; t += CONTROL_STEP) {
         const travel = (s + t) / locus.eta;
-        if (travel < minTravel) continue;
-        const pf = powerFactor(hitDistance(g, type, travel), skill);
-        if (pf <= 0) break outer; // farther only needs more power
-        const v =
-          sat(bestNextValue(add(a, scale(d, t)), z, skill)) *
-          cap * pf * railFac * railRoute;
+        const ease = routeEase(g, type, travel, i, firstSeg, skill);
+        if (ease <= 0) {
+          if (priced) break outer; // power exhausted; farther only needs more
+          continue; // still below the pot-forced minimum travel
+        }
+        priced = true;
+        const v = sat(bestNextValue(add(a, scale(d, t)), z, skill)) * forced * ease;
         if (v > best) best = v;
         if (best >= cap - 1e-9) break outer; // this exit is saturated
       }
