@@ -21,11 +21,12 @@ import {
 } from './shots';
 import { SkillProfile } from './skill';
 import {
+  ZoneContext,
   zoneBar,
   zoneContext,
   zoneValue,
 } from './zone';
-import { ValueSurface, gateFor, surfacesForLayout, zoneInputsForBall } from './value';
+import { ValueSurface, surfacesForLayout, zoneInputsForBall } from './value';
 import type { RouteLanding, ZoneTarget } from './route';
 import {
   clearanceRisk,
@@ -69,6 +70,13 @@ export interface PlannedShot {
   zoneLen: number | null;
   /** Angle between path at zone entry and the line of the next shot, deg. */
   entryDeg: number | null;
+  /**
+   * The Position Zone this shot is playing for: the chosen-pocket zone of the
+   * following ball, gated for the rest of the rack. Resolved once in finalize
+   * and read by the renderer and the explanation, so the drawn window is
+   * exactly the one the route was scored against. null for the final ball.
+   */
+  zone: ZoneContext | null;
   explanation: string;
 }
 
@@ -233,6 +241,7 @@ function expandPass(
       windowRef: c.windowRef,
       zoneLen: c.zoneLen,
       entryDeg: c.entryDeg,
+      zone: null,
       explanation: '',
     };
     children.push({
@@ -256,24 +265,26 @@ function expandPass(
 
 
 /**
- * Remeasure zoneLen/entryDeg for the explanations against the zone the user
- * actually SEES. The route search runs on the same onward-control-gated
- * zones, but with the bar of the pocket actually chosen (the search bar may
- * have been the cross-pocket one) and a finer walk along the final path.
+ * Resolve the Position Zone each non-final shot is playing for and stamp it on
+ * the shot, so the renderer (scene.ts) and the explanation read the SAME zone
+ * the route was scored against instead of rebuilding it. zoneLen/entryDeg are
+ * then remeasured against that zone — with the pocket actually chosen (the
+ * search bar may have been the cross-pocket one) and a finer walk along the
+ * final path — the same remeasure this pass did before it also owned stamping.
  */
-function remeasureZones(
+function resolveShotZones(
   shots: PlannedShot[],
   skill: SkillProfile,
   surfaces: (ValueSurface | null)[],
 ): void {
-  for (let i = 0; i < shots.length - 1; i++) {
+  const balls = shots.map((s) => s.ball);
+  for (let i = 0; i + 1 < shots.length; i++) {
     const shot = shots[i];
     const next = shots[i + 1];
+    const { obstacles, gate } = zoneInputsForBall(balls, i + 1, surfaces);
+    const zc = zoneContext(next.ball.pos, next.pocket, obstacles, [], gate);
+    shot.zone = zc;
     if (!shot.path || shot.zoneLen === null) continue;
-    const later = shots.slice(i + 2).map((s) => s.ball.pos);
-    const zc = zoneContext(
-      next.ball.pos, next.pocket, later, [], gateFor(surfaces, i + 2),
-    );
     const bar = zoneBar(zc, skill, 0, shot.windowRef ?? Infinity);
     // Walk the intended path; keep the in-window run the cue ball ends in.
     let run = 0;
@@ -327,10 +338,11 @@ function finalize(
     windowRef: null,
     zoneLen: null,
     entryDeg: null,
+    zone: null,
     explanation: '',
   };
   const shots = [...node.done, last];
-  remeasureZones(shots, skill, surfaces);
+  resolveShotZones(shots, skill, surfaces);
   for (let i = 0; i < shots.length; i++) {
     shots[i].explanation = explainShot(shots[i], shots[i + 1] ?? null, i === 0, skill);
   }
