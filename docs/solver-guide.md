@@ -167,6 +167,15 @@ shot and what window is drawn:
 
 - `RAIL_MARGIN` and `RAIL_AWAY_GATE`: rail-band comfort and exclusion rules.
 - `BALL_MARGIN_HARD` and `BALL_MARGIN`: clearance from the next object ball.
+- `proximity` with `POSITION_HALF`, `POSITION_DIAG`, and `POSITION_FLOOR`: a
+  closeness preference on the cue-to-object distance of the shot being valued.
+  Flat (full value) inside half the long rail, then falls progressively to
+  `POSITION_FLOOR` at the far diagonal. Pot probability saturates for easy
+  balls, so without this the value is blind to distance-to-the-next-ball and
+  the solver will leave a dead-straight, full-table leave. Because it rides on
+  `zoneValue` it shapes the drawn windows, the backward value surfaces, and
+  every onward-control reading alike — devaluing a leave whose only cheap
+  onward route stays full-table from the next ball.
 - `CONTROL_SAT`: value threshold where onward control saturates.
 - `CONTROL_STEP` and `CONTROL_RANGE`: scan resolution and reach for onward
   control exits.
