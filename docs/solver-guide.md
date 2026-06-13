@@ -228,6 +228,12 @@ and position expectation:
 - `ZONE_VMIN`: minimum effective value while identifying usable path runs.
 - `SIMPLE_ROUTE_MAX_TRAVEL`: maximum no-rail stop/stun/low/draw travel that
   can count as the simple baseline when pricing redundant long rail-follow.
+- `redundantLongFollowFactor`: penalizes a long rail-follow when a comparable
+  short no-rail route reaches about the same window. The short route also
+  stays inside the position window the whole way, while the rail follow loops
+  outside it, so this also encodes the "stay in the window" preference. Gated
+  on closeness: a long follow that is the only way to a far window keeps its
+  full value. Its travel ramp controls how fast the in-window route wins.
 - `LANDING_RAIL_INSET`: strict-pass clearance from awkward rail-band landings.
 - `SCRATCH_MARGIN`: near-pocket scratch-risk margin.
 - `zoneTargets`: which pockets are eligible for the next ball.
