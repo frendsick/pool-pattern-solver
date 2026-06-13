@@ -4,7 +4,7 @@
 // `zoneValue` (0 when infeasible); the polygon builder is for rendering only.
 
 import { Vec, add, sub, scale, norm, rotate, dist } from './geometry';
-import { BALL_R, MIN_X, MAX_X, MIN_Y, MAX_Y, Pocket, onTable } from './table';
+import { BALL_R, TABLE_W, TABLE_H, MIN_X, MAX_X, MIN_Y, MAX_Y, Pocket, onTable } from './table';
 import {
   ShotGeometry,
   ShotType,
@@ -142,6 +142,41 @@ function obstacleComfort(d: number): number {
   return 0.5 + (0.5 * (d - 2 * BALL_R)) / (6 - 2 * BALL_R);
 }
 
+/**
+ * Closeness preference (position play): leaving the cue ball the length of the
+ * table from the next ball is worse position than getting to it, even when the
+ * pot stays makeable from distance. Pot probability saturates for easy balls
+ * (erf flattens near 1), so without this factor the solver is indifferent
+ * between a mid-table leave and the full length of the table — and it happily
+ * leaves a dead-straight, full-table leave because the pot reads the same. A
+ * real player gets close: short shots compound margin and, crucially, keep
+ * cue-ball options open for the rest of the rack.
+ *
+ * The penalty lives ENTIRELY past half the long rail. Inside half-table every
+ * leave is full value, so the routine comfortable-range decisions — the
+ * "stay-in-window" and "keep-it-simple" calibrations (rounds 21-23) — are
+ * untouched; the factor only bites when there is "a lot of room", i.e. the
+ * next ball is more than half a table away and the player could have gotten
+ * closer. Beyond the knee it falls progressively (accelerating with distance)
+ * to POSITION_FLOOR at the far diagonal.
+ *
+ * It rides on `zoneValue`, so it shapes the drawn windows, the backward value
+ * surfaces, and every onward-control reading alike: a leave whose only cheap
+ * onward route stays full-table from the next ball loses the credit a
+ * closer-reaching, angled leave keeps.
+ */
+const POSITION_HALF = TABLE_W / 2; // 50": the "over half-table" knee
+const POSITION_DIAG = Math.hypot(TABLE_W, TABLE_H); // ~112"
+const POSITION_FLOOR = 0.5;
+
+export function proximity(d: number): number {
+  if (d <= POSITION_HALF) return 1;
+  const t = Math.min(1, (d - POSITION_HALF) / (POSITION_DIAG - POSITION_HALF));
+  // Convex (t^1.5): a gentle nudge just past half-table, steepening into a
+  // real penalty for a true full-table leave.
+  return 1 - (1 - POSITION_FLOOR) * Math.pow(t, 1.5);
+}
+
 // Onward control: reaching a spot worth >= CONTROL_SAT on the next ball earns
 // full credit; weaker reachability scales the zone value down proportionally.
 const CONTROL_SAT = 0.6;
@@ -277,7 +312,7 @@ export function zoneValue(c: Vec, z: ZoneContext, skill: SkillProfile): number {
   if (!cuePathClear(c, g.ghost, z.obstacles)) return 0;
   const pot = potProbability(g, z.pocket, skill);
   if (pot <= 0) return 0;
-  let v = pot * railComfort(c, g.cueDir) * ballComfort(dBall) * obstComfort;
+  let v = pot * railComfort(c, g.cueDir) * ballComfort(dBall) * obstComfort * proximity(dBall);
   if (z.next.length > 0 || z.nextValue) v *= cachedOnwardControl(g, z, skill);
   return v;
 }
