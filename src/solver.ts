@@ -29,6 +29,7 @@ import {
 import { ValueSurface, gateFor, surfacesForLayout } from './value';
 import type { RouteLanding, ZoneTarget } from './route';
 import {
+  clearanceRisk,
   expectedNextPot,
   lineAngleDeg,
   pocketRisk,
@@ -212,7 +213,9 @@ function expandPass(
     const intendedPath = tracePath(
       c.node.pending.g.ghost, c.dir, c.travel, obstacles, 4, curve,
     );
-    const risk = pocketRisk(intendedPath.points);
+    const risk =
+      pocketRisk(intendedPath.points) *
+      clearanceRisk(intendedPath.points, laterBalls.map((b) => b.pos));
     const p = c.node.pending;
     const shot: PlannedShot = {
       ball: p.ball,
