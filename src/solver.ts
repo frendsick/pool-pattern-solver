@@ -180,7 +180,8 @@ function expandPass(
   skill: SkillProfile,
   lenient: boolean,
 ): Node[] {
-  const obstacles = [nextBall.pos, ...laterBalls.map((b) => b.pos)];
+  const laterPos = laterBalls.map((b) => b.pos);
+  const obstacles = [nextBall.pos, ...laterPos];
   const candidates: RouteCandidate[] = [];
   for (const node of nodes) {
     for (const l of routeCandidates(node.pending.g, obstacles, targets, skill, lenient)) {
@@ -214,8 +215,7 @@ function expandPass(
       c.node.pending.g.ghost, c.dir, c.travel, obstacles, 4, curve,
     );
     const risk =
-      pocketRisk(intendedPath.points) *
-      clearanceRisk(intendedPath.points, laterBalls.map((b) => b.pos));
+      pocketRisk(intendedPath.points) * clearanceRisk(intendedPath.points, laterPos);
     const p = c.node.pending;
     const shot: PlannedShot = {
       ball: p.ball,

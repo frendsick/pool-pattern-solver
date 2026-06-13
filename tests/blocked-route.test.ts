@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { vec, distPointSegment } from '../src/geometry';
-import { Layout, BALL_R } from '../src/table';
+import { vec, distPointSegment, Vec } from '../src/geometry';
+import { Ball, Layout, BALL_R } from '../src/table';
 import { INTERMEDIATE } from '../src/skill';
 import { solve } from '../src/solver';
 
@@ -23,7 +23,7 @@ describe('blocked cue-ball routes lose to open lanes (seed 1147167)', () => {
   };
 
   /** Smallest edge gap from a shot's cue path to a ball it is not playing. */
-  function minNonTargetGap(path: typeof layout.balls[number]['pos'][] | null, later: typeof layout.balls): number {
+  function minNonTargetGap(path: Vec[] | null, later: Ball[]): number {
     if (!path) return Infinity;
     let worst = Infinity;
     for (const b of later) {

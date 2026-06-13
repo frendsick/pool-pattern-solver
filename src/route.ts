@@ -72,6 +72,7 @@ const LANDING_RAIL_INSET = RAIL_MARGIN + 1;
  * quadrature's scratch traces.
  */
 const SCRATCH_MARGIN = 4;
+const SCRATCH_FLOOR = 0.35;
 
 /** Per-pocket zone target for one solver layer: shared by every node. */
 export interface ZoneTarget {
@@ -413,6 +414,36 @@ export function lineAngleDeg(pathDir: Vec, zc: ZoneContext): number {
 }
 
 /**
+ * Worst-case penalty for a hazard the clean trace cannot see: full strength
+ * (down to `floor`) at dead contact, ramping linearly back to 1 (no effect)
+ * once the edge gap reaches `margin`. Shared by clearanceRisk and pocketRisk.
+ */
+function rampPenalty(clear: number, margin: number, floor: number): number {
+  if (clear >= margin) return 1;
+  return floor + ((1 - floor) * Math.max(0, clear)) / margin;
+}
+
+/**
+ * Closest approach (center-to-`target` distance) of any path segment,
+ * optionally restricted to segments whose direction `accept`s. Degenerate
+ * (zero-length) segments are skipped.
+ */
+function nearestApproach(
+  path: Vec[],
+  target: Vec,
+  accept?: (seg: Vec) => boolean,
+): number {
+  let d = Infinity;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const seg = sub(path[i + 1], path[i]);
+    if (Math.hypot(seg.x, seg.y) < 1e-9) continue;
+    if (accept && !accept(seg)) continue;
+    d = Math.min(d, distPointSegment(target, path[i], path[i + 1]));
+  }
+  return d;
+}
+
+/**
  * Edge clearance (inches) below which the cue ball's lane past a NON-target
  * ball counts as blocked, and the worst-case penalty at dead contact.
  *
@@ -439,19 +470,8 @@ const BLOCK_FLOOR = 0.5;
 export function clearanceRisk(path: Vec[], later: Vec[]): number {
   let worst = 1;
   for (const ball of later) {
-    let d = Infinity;
-    for (let i = 0; i + 1 < path.length; i++) {
-      const seg = sub(path[i + 1], path[i]);
-      if (Math.hypot(seg.x, seg.y) < 1e-9) continue;
-      d = Math.min(d, distPointSegment(ball, path[i], path[i + 1]));
-    }
-    const clear = d - 2 * BALL_R;
-    if (clear < BLOCK_MARGIN) {
-      worst = Math.min(
-        worst,
-        BLOCK_FLOOR + ((1 - BLOCK_FLOOR) * Math.max(0, clear)) / BLOCK_MARGIN,
-      );
-    }
+    const clear = nearestApproach(path, ball) - 2 * BALL_R;
+    worst = Math.min(worst, rampPenalty(clear, BLOCK_MARGIN, BLOCK_FLOOR));
   }
   return worst;
 }
@@ -459,17 +479,10 @@ export function clearanceRisk(path: Vec[], later: Vec[]): number {
 export function pocketRisk(path: Vec[]): number {
   let worst = 1;
   for (const p of POCKETS) {
-    let d = Infinity;
-    for (let i = 0; i + 1 < path.length; i++) {
-      const seg = sub(path[i + 1], path[i]);
-      if (Math.hypot(seg.x, seg.y) < 1e-9) continue;
-      if (angleBetween(seg, p.facing) > p.acceptance) continue;
-      d = Math.min(d, distPointSegment(p.target, path[i], path[i + 1]));
-    }
-    const clear = d - p.captureRadius;
-    if (clear < SCRATCH_MARGIN) {
-      worst = Math.min(worst, 0.35 + (0.65 * Math.max(0, clear)) / SCRATCH_MARGIN);
-    }
+    const clear =
+      nearestApproach(path, p.target, (seg) => angleBetween(seg, p.facing) <= p.acceptance) -
+      p.captureRadius;
+    worst = Math.min(worst, rampPenalty(clear, SCRATCH_MARGIN, SCRATCH_FLOOR));
   }
   return worst;
 }
