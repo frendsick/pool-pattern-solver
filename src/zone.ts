@@ -21,8 +21,8 @@ import {
   DIST_WEIGHTS,
   distanceSigma,
   potProbability,
-  routeEase,
   routeReliability,
+  walkExit,
 } from './skill';
 
 /**
@@ -239,27 +239,16 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
     if (cap <= best) continue; // cannot beat what another exit already offers
     const tr = tracePath(g.ghost, locus.dir, CONTROL_RANGE * locus.eta, z.obstacles, 3);
     const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
-    let s = 0; // cumulative travel at the start of the segment
     let priced = false; // have we passed the pot-forced minimum travel yet?
-    outer: for (let i = 0; i + 1 < tr.points.length; i++) {
-      const a = tr.points[i];
-      const b = tr.points[i + 1];
-      const segLen = dist(a, b);
-      if (segLen < 1e-9) continue;
-      const d = norm(sub(b, a));
-      for (let t = CONTROL_STEP; t <= segLen; t += CONTROL_STEP) {
-        const travel = (s + t) / locus.eta;
-        const ease = routeEase(g, type, travel, i, firstSeg, skill);
-        if (ease <= 0) {
-          if (priced) break outer; // power exhausted; farther only needs more
-          continue; // still below the pot-forced minimum travel
-        }
-        priced = true;
-        const v = sat(bestNextValue(add(a, scale(d, t)), z, skill)) * forced * ease;
-        if (v > best) best = v;
-        if (best >= cap - 1e-9) break outer; // this exit is saturated
+    for (const st of walkExit(tr.points, locus.eta, firstSeg, g, type, skill, CONTROL_STEP, false)) {
+      if (st.ease <= 0) {
+        if (priced) break; // power exhausted; farther only needs more
+        continue; // still below the pot-forced minimum travel
       }
-      s += segLen;
+      priced = true;
+      const v = sat(bestNextValue(st.point, z, skill)) * forced * st.ease;
+      if (v > best) best = v;
+      if (best >= cap - 1e-9) break; // this exit is saturated
     }
   }
   return best;

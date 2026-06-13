@@ -5,7 +5,6 @@
 
 import {
   Vec,
-  add,
   sub,
   scale,
   norm,
@@ -30,6 +29,7 @@ import {
   directionSigma,
   perturbSamples,
   routeEase,
+  walkExit,
 } from './skill';
 import {
   ZoneContext,
@@ -252,26 +252,14 @@ function samplePath(
   const ghost = zoneGhost(zc);
   const firstSeg =
     tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
-  let s = 0;
-  for (let i = 0; i + 1 < tr.points.length; i++) {
-    const a = tr.points[i];
-    const b = tr.points[i + 1];
-    const segLen = Math.hypot(b.x - a.x, b.y - a.y);
-    if (segLen < 1e-9) continue;
-    const d = norm(sub(b, a));
-    for (let t = i === 0 ? WALK_STEP : 0; t <= segLen; t += WALK_STEP) {
-      const travel = (s + t) / locus.eta;
-      const p = add(a, scale(d, t));
-      const v = zoneValue(p, zc, skill);
-      const ease = routeEase(g, type, travel, i, firstSeg, skill);
-      out.push({
-        s: travel, p, rails: i, dirAt: d,
-        v,
-        eff: v * ease,
-        inBand: railExcluded(p, norm(sub(ghost, p)), LANDING_RAIL_INSET),
-      });
-    }
-    s += segLen;
+  for (const st of walkExit(tr.points, locus.eta, firstSeg, g, type, skill, WALK_STEP, true)) {
+    const v = zoneValue(st.point, zc, skill);
+    out.push({
+      s: st.travel, p: st.point, rails: st.rails, dirAt: st.dirAt,
+      v,
+      eff: v * st.ease,
+      inBand: railExcluded(st.point, norm(sub(ghost, st.point)), LANDING_RAIL_INSET),
+    });
   }
   return out;
 }
