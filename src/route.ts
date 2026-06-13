@@ -14,7 +14,7 @@ import {
   distPointSegment,
   angleBetween,
 } from './geometry';
-import { Ball, Pocket, POCKETS, MIN_X, MAX_X, MIN_Y, MAX_Y } from './table';
+import { Ball, Pocket, POCKETS, BALL_R, MIN_X, MAX_X, MIN_Y, MAX_Y } from './table';
 import {
   ShotGeometry,
   ShotType,
@@ -72,6 +72,7 @@ const LANDING_RAIL_INSET = RAIL_MARGIN + 1;
  * quadrature's scratch traces.
  */
 const SCRATCH_MARGIN = 4;
+const SCRATCH_FLOOR = 0.35;
 
 /** Per-pocket zone target for one solver layer: shared by every node. */
 export interface ZoneTarget {
@@ -412,20 +413,76 @@ export function lineAngleDeg(pathDir: Vec, zc: ZoneContext): number {
   return (Math.min(a, Math.PI - a) * 180) / Math.PI;
 }
 
+/**
+ * Worst-case penalty for a hazard the clean trace cannot see: full strength
+ * (down to `floor`) at dead contact, ramping linearly back to 1 (no effect)
+ * once the edge gap reaches `margin`. Shared by clearanceRisk and pocketRisk.
+ */
+function rampPenalty(clear: number, margin: number, floor: number): number {
+  if (clear >= margin) return 1;
+  return floor + ((1 - floor) * Math.max(0, clear)) / margin;
+}
+
+/**
+ * Closest approach (center-to-`target` distance) of any path segment,
+ * optionally restricted to segments whose direction `accept`s. Degenerate
+ * (zero-length) segments are skipped.
+ */
+function nearestApproach(
+  path: Vec[],
+  target: Vec,
+  accept?: (seg: Vec) => boolean,
+): number {
+  let d = Infinity;
+  for (let i = 0; i + 1 < path.length; i++) {
+    const seg = sub(path[i + 1], path[i]);
+    if (Math.hypot(seg.x, seg.y) < 1e-9) continue;
+    if (accept && !accept(seg)) continue;
+    d = Math.min(d, distPointSegment(target, path[i], path[i + 1]));
+  }
+  return d;
+}
+
+/**
+ * Edge clearance (inches) below which the cue ball's lane past a NON-target
+ * ball counts as blocked, and the worst-case penalty at dead contact.
+ *
+ * A route that threads close past a ball it is not playing for is risky in a
+ * way the landing-spread quadrature cannot resolve: that quadrature samples
+ * the departure direction only at 0 and +/-1.732 sigma, so a centerline that
+ * grazes a ball at near-zero clearance still scores as a clean miss for all
+ * the probability mass between the nodes, while in reality much of it clips
+ * the ball — wrecking the planned position and disturbing a ball not yet
+ * played. This is the object-ball twin of pocketRisk (a collision the clean
+ * trace does not see). BLOCK_MARGIN asks for a ball-radius of daylight past
+ * the surface (center-to-center >= 3R) before the lane reads as open; a tight
+ * but real lane (a follow that passes a rail's width clear) is left alone.
+ */
+const BLOCK_MARGIN = BALL_R;
+const BLOCK_FLOOR = 0.5;
+
+/**
+ * Penalty for a cue-ball path that threads close past balls it is not playing
+ * position for (`later` excludes the next/target ball — coming near that one
+ * is the route's whole point, and its landing clearance is gated by the zone).
+ * Worst grazed ball decides; no effect once every lane is open by BLOCK_MARGIN.
+ */
+export function clearanceRisk(path: Vec[], later: Vec[]): number {
+  let worst = 1;
+  for (const ball of later) {
+    const clear = nearestApproach(path, ball) - 2 * BALL_R;
+    worst = Math.min(worst, rampPenalty(clear, BLOCK_MARGIN, BLOCK_FLOOR));
+  }
+  return worst;
+}
+
 export function pocketRisk(path: Vec[]): number {
   let worst = 1;
   for (const p of POCKETS) {
-    let d = Infinity;
-    for (let i = 0; i + 1 < path.length; i++) {
-      const seg = sub(path[i + 1], path[i]);
-      if (Math.hypot(seg.x, seg.y) < 1e-9) continue;
-      if (angleBetween(seg, p.facing) > p.acceptance) continue;
-      d = Math.min(d, distPointSegment(p.target, path[i], path[i + 1]));
-    }
-    const clear = d - p.captureRadius;
-    if (clear < SCRATCH_MARGIN) {
-      worst = Math.min(worst, 0.35 + (0.65 * Math.max(0, clear)) / SCRATCH_MARGIN);
-    }
+    const clear =
+      nearestApproach(path, p.target, (seg) => angleBetween(seg, p.facing) <= p.acceptance) -
+      p.captureRadius;
+    worst = Math.min(worst, rampPenalty(clear, SCRATCH_MARGIN, SCRATCH_FLOOR));
   }
   return worst;
 }

@@ -237,6 +237,12 @@ and position expectation:
 - `expectedNextPot`: landing-spread quadrature used for final position value.
 - `pocketRisk`: deterministic scratch-risk penalty for paths near pocket
   mouths.
+- `clearanceRisk`: deterministic penalty for a cue-ball path that threads
+  close past a ball it is not playing position for (the object-ball twin of
+  `pocketRisk`). The landing quadrature samples direction too coarsely to see
+  a centerline grazing a ball, so this prices the lane explicitly. Owns
+  `BLOCK_MARGIN` (daylight a lane needs to read as open) and `BLOCK_FLOOR`
+  (worst penalty at dead contact). Applied in the beam alongside `pocketRisk`.
 
 The route search has a strict pass and a lenient fallback. Preserve that
 shape when tuning thresholds: strict keeps chosen landings consistent with
