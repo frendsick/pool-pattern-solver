@@ -6,7 +6,6 @@ import { Layout, POCKETS } from './table';
 import { SkillProfile } from './skill';
 import { Pattern } from './solver';
 import { zoneContext, zonePeak, zonePolygons } from './zone';
-import { gateFor, surfacesForLayout } from './value';
 import { Scene } from './render';
 
 function polygonArea(polys: Vec[][]): number {
@@ -59,14 +58,13 @@ export function sceneForStep(
   const next = shots[k] ?? null;
   let zone: Vec[][] = [];
   const altZones: Vec[][] = [];
-  if (next) {
-    const later = layout.balls.slice(k + 1).map((b) => b.pos);
-    // The displayed zone is gated by the following ball's backward value
-    // surface (value.ts, shared with the solver via the per-layout cache):
-    // it keeps only cue positions from which the cue ball can still be moved
-    // on toward what the REST of the rack requires, down to the 9.
-    const gate = gateFor(surfacesForLayout(layout, skill), k + 1);
-    const primary = zoneContext(next.ball.pos, next.pocket, later, [], gate);
+  // The shot already carries the resolved Position Zone the route was scored
+  // against (solver.ts resolveShotZones): the chosen-pocket zone of the
+  // following ball, gated by its backward value surface down to the 9. Drawing
+  // it — rather than rebuilding it here — is what guarantees the window the
+  // user sees is the window the route was scored against.
+  if (next && shot.zone) {
+    const primary = shot.zone;
     // The window's quality bar is capped to what the chosen route's landing
     // stretch can reach (windowRef): the drawn window is the stretch the
     // route is playing for, and the planned landing sits inside it.
@@ -74,13 +72,15 @@ export function sceneForStep(
     zone = zonePolygons(primary, skill, 0, 85, cap);
     // The best other pocket expands the window, but as a second choice held
     // to the primary pocket's quality bar; showing every pocket's zone would
-    // bury the primary one in noise.
+    // bury the primary one in noise. The alt pockets reuse the primary zone's
+    // own obstacles and gate, so they are gated identically.
     const bar = Math.min(zonePeak(primary, skill), cap);
     let bestAlt: Vec[][] | null = null;
     for (const p of POCKETS) {
       if (p.id === next.pocket.id) continue;
       const polys = zonePolygons(
-        zoneContext(next.ball.pos, p, later, [], gate), skill, bar, 85, cap,
+        zoneContext(next.ball.pos, p, primary.obstacles, [], primary.nextValue),
+        skill, bar, 85, cap,
       );
       if (polys.length > 0 && (!bestAlt || polygonArea(polys) > polygonArea(bestAlt))) {
         bestAlt = polys;
