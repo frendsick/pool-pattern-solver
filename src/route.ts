@@ -393,14 +393,24 @@ function redundantLongFollowFactor(
   routeEff: number,
 ): number {
   // If a short no-rail stop/stun/low/draw route already reaches about the
-  // same window, do not let a long rail-follow win on zone size alone.
+  // same window, do not let a long rail-follow win on zone size alone. The
+  // short route also stays INSIDE the window the whole way, while the rail
+  // follow loops far outside it (seed 775832494 shot 7: a 47" follow grazing
+  // ~45% of its path outside the 8's window, beaten by an in-window touch).
+  // This penalty is gated on `closeness` (a comparable in-window route must
+  // exist), so a long follow that is the ONLY way to a far window — the
+  // handball/along-window routes the player explicitly wants — keeps its full
+  // value (closeness < 0.55 returns 1 long before the ramp).
   if (type !== 'follow' || rails === 0 || travel < 35 || simpleEff <= 0 || routeEff <= 0) {
     return 1;
   }
   const closeness = simpleEff / routeEff;
   if (closeness < 0.55) return 1;
   const closeT = Math.min(1, (closeness - 0.55) / 0.15);
-  const travelT = Math.min(1, (travel - 35) / 40);
+  // Ramp fast in travel: by ~50" the in-window route should clearly win when
+  // it is comparable. (Was /40, which let a 47" follow off with a ~3% cut and
+  // kept the cue looping outside the window — round 23 feedback.)
+  const travelT = Math.min(1, (travel - 35) / 15);
   const allowedVsSimple = 1 - 0.15 * travelT;
   const capFactor = Math.min(1, (simpleEff * allowedVsSimple) / routeEff);
   return 1 - (1 - capFactor) * closeT * travelT;
@@ -457,9 +467,19 @@ function nearestApproach(
  * trace does not see). BLOCK_MARGIN asks for a ball-radius of daylight past
  * the surface (center-to-center >= 3R) before the lane reads as open; a tight
  * but real lane (a follow that passes a rail's width clear) is left alone.
+ *
+ * BLOCK_FLOOR is deliberately gentle. This penalty rides on `score` (the
+ * run-out probability), so it competes head-to-head with the route economics
+ * that drive "keep it simple" — and a heavy multiplier does not just reject
+ * the threaded route, it can re-route the WHOLE rack into longer follows to
+ * dodge one near-miss (seed 775832494: a 0.5 floor turned a 4" stop-in into a
+ * 38" one-rail follow because a later draw skimmed the 7). A graze is a glance,
+ * not a scratch, so the worst case costs only a few percent — enough to break
+ * a genuine near-tie (seed 1147167, where the open line was within ~3% of the
+ * blocked one) without overriding a real difference in run-out value.
  */
 const BLOCK_MARGIN = BALL_R;
-const BLOCK_FLOOR = 0.5;
+const BLOCK_FLOOR = 0.93;
 
 /**
  * Penalty for a cue-ball path that threads close past balls it is not playing
