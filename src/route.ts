@@ -5,6 +5,7 @@
 
 import {
   Vec,
+  add,
   sub,
   scale,
   norm,
@@ -48,6 +49,12 @@ export const MAX_ROUTE = 220;
 export const WALK_STEP = 2.0;
 const ZONE_VMIN = 0.15;
 const SIMPLE_ROUTE_MAX_TRAVEL = 30;
+// A long multi-rail path running along a narrow lobe still needs lateral
+// control. Measure the local in-bar width across the route and require enough
+// width for the route's direction spread before giving full window credit.
+const WINDOW_WIDTH_STEP = 1;
+const WINDOW_WIDTH_RANGE = 20;
+const WINDOW_WIDTH_SIGMAS = 3;
 /**
  * The strict pass keeps landings this far clear of the awkward rail band the
  * drawn window hard-excludes (buildPie, railExcluded — cueing away from a
@@ -354,6 +361,51 @@ function bestShortSimpleMerit(
   return best;
 }
 
+function sideWidth(
+  p: Vec,
+  dir: Vec,
+  zc: ZoneContext,
+  skill: SkillProfile,
+  minValue: number,
+): number {
+  let width = 0;
+  for (let d = WINDOW_WIDTH_STEP; d <= WINDOW_WIDTH_RANGE; d += WINDOW_WIDTH_STEP) {
+    if (zoneValue(add(p, scale(dir, d)), zc, skill) < minValue) break;
+    width += WINDOW_WIDTH_STEP;
+  }
+  return width;
+}
+
+function localWindowWidth(
+  p: Vec,
+  pathDir: Vec,
+  zc: ZoneContext,
+  skill: SkillProfile,
+  minValue: number,
+): number {
+  if (zoneValue(p, zc, skill) < minValue) return 0;
+  const perp = rotate(pathDir, Math.PI / 2);
+  return (
+    WINDOW_WIDTH_STEP +
+    sideWidth(p, perp, zc, skill, minValue) +
+    sideWidth(p, scale(perp, -1), zc, skill, minValue)
+  );
+}
+
+function widthControlFactor(
+  width: number,
+  travel: number,
+  type: ShotType,
+  rails: number,
+  g: ShotGeometry,
+  skill: SkillProfile,
+): number {
+  if (rails < 2) return 1;
+  const lateralSigma = travel * Math.sin(directionSigma(type, rails, skill, g.dCueGhost));
+  const required = WINDOW_WIDTH_SIGMAS * Math.max(1, lateralSigma);
+  return Math.min(1, Math.sqrt(width / required));
+}
+
 function redundantLongFollowFactor(
   type: ShotType,
   rails: number,
@@ -376,11 +428,11 @@ function redundantLongFollowFactor(
   const closeness = simpleEff / routeEff;
   if (closeness < 0.55) return 1;
   const closeT = Math.min(1, (closeness - 0.55) / 0.15);
-  // Ramp fast in travel: by ~50" the in-window route should clearly win when
-  // it is comparable. (Was /40, which let a 47" follow off with a ~3% cut and
-  // kept the cue looping outside the window — round 23 feedback.)
-  const travelT = Math.min(1, (travel - 35) / 15);
-  const allowedVsSimple = 1 - 0.15 * travelT;
+  // Ramp fast in travel: by the mid-40s the in-window route should clearly
+  // win when it is comparable. A rail loop at that speed is no longer a
+  // harmless tie-break against a stop/touch that is already in the window.
+  const travelT = Math.min(1, (travel - 30) / 15);
+  const allowedVsSimple = 1 - 0.4 * travelT;
   const capFactor = Math.min(1, (simpleEff * allowedVsSimple) / routeEff);
   return 1 - (1 - capFactor) * closeT * travelT;
 }
@@ -612,7 +664,16 @@ export function routeCandidates(
         if (tr.outcome !== 'ok') continue;
         const sigS = distanceSigma(type, sTarget, rails, skill, g.dCueGhost);
         const stayFactor = Math.min(1, ivLen / (3 * sigS));
-        const windowFactor = Math.sqrt(stayFactor);
+        const rawWidthBar = Math.min(1, bar / baseEase);
+        const widthFactor = widthControlFactor(
+          localWindowWidth(smp.p, smp.dirAt, zc, skill, rawWidthBar),
+          sTarget,
+          type,
+          rails,
+          g,
+          skill,
+        );
+        const windowFactor = Math.sqrt(stayFactor) * widthFactor;
         const simpleFactor = redundantLongFollowFactor(
           type,
           rails,

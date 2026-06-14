@@ -269,6 +269,13 @@ and position expectation:
 - `ZONE_VMIN`: minimum effective value while identifying usable path runs.
 - `SIMPLE_ROUTE_MAX_TRAVEL`: maximum no-rail stop/stun/low/draw travel that
   can count as the simple baseline when pricing redundant long rail-follow.
+- `WINDOW_WIDTH_STEP`, `WINDOW_WIDTH_RANGE`, and `WINDOW_WIDTH_SIGMAS`: local
+  cross-route width scan and required lateral-control margin for a multi-rail
+  route's in-zone interval. The interval is selected on effective route value,
+  but the lateral scan compares raw `zoneValue` against that route's raw
+  equivalent bar. A long multi-rail path running down a narrow lobe no longer
+  gets full window credit from path length alone; the lobe also needs enough
+  in-bar width across the route for the route's direction spread.
 - `redundantLongFollowFactor`: penalizes a long rail-follow when a comparable
   short no-rail route reaches about the same window. The short route also
   stays inside the position window the whole way, while the rail follow loops
