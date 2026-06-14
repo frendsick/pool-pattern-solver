@@ -5,7 +5,6 @@
 
 import {
   Vec,
-  add,
   sub,
   scale,
   norm,
@@ -19,8 +18,6 @@ import {
   ShotGeometry,
   ShotType,
   departureDir,
-  minCueTravel,
-  hitDistance,
   tracePath,
   CaromCurve,
   caromCurve,
@@ -30,14 +27,11 @@ import {
   SkillProfile,
   distanceSigma,
   directionSigma,
-  drawRailFactor,
   perturbSamples,
-  powerFactor,
-  railRouteFactor,
-  routeReliability,
+  routeEase,
+  walkExit,
 } from './skill';
 import {
-  NextValueFn,
   ZoneContext,
   ZONE_FLOOR,
   ZONE_RELATIVE,
@@ -48,6 +42,7 @@ import {
   zonePeak,
   zoneValue,
 } from './zone';
+import { ValueSurface, zoneInputsForBall } from './value';
 
 export const MAX_ROUTE = 220;
 export const WALK_STEP = 2.0;
@@ -88,18 +83,19 @@ export interface ZoneTarget {
 }
 
 export function zoneTargets(
-  nextBall: Ball,
-  laterBalls: Ball[],
+  balls: Ball[],
+  m: number,
+  surfaces: (ValueSurface | null)[],
   skill: SkillProfile,
-  nextValue: NextValueFn | undefined,
 ): ZoneTarget[] {
-  const zoneObstacles = laterBalls.map((b) => b.pos);
+  const nextBall = balls[m];
+  const { obstacles, gate } = zoneInputsForBall(balls, m, surfaces);
   const found: ZoneTarget[] = [];
   for (const pocket of POCKETS) {
-    const zc = zoneContext(nextBall.pos, pocket, zoneObstacles, [], nextValue);
+    const zc = zoneContext(nextBall.pos, pocket, obstacles, [], gate);
     if (!zc.ballPathClear) continue;
     if (zonePeak(zc, skill) <= 0) continue;
-    found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, zoneObstacles) });
+    found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, obstacles) });
   }
   return found;
 }
@@ -202,8 +198,6 @@ function exactCurveSamples(
 ): PathSample[] {
   const out: PathSample[] = [];
   const ghost = zoneGhost(zc);
-  const minTravel = minCueTravel(g, type);
-  const rel = routeReliability(type, g.dCueGhost, skill);
   for (let travel = WALK_STEP; travel <= MAX_ROUTE; travel += WALK_STEP) {
     const curve = caromCurve(g, type, travel);
     if (!curve) break;
@@ -224,12 +218,7 @@ function exactCurveSamples(
     const p = tr.end;
     const v = zoneValue(p, zc, skill);
     const railDist = firstRailDist(tr.points, tr.rails);
-    const railFac = tr.rails === 0 ? 1 : drawRailFactor(type, railDist, skill);
-    const ease =
-      travel < minTravel
-        ? 0
-        : rel * railFac * railRouteFactor(type, g.cut, tr.rails, skill) *
-          powerFactor(hitDistance(g, type, travel), skill);
+    const ease = routeEase(g, type, travel, tr.rails, railDist, skill);
     out.push({
       s: travel,
       p,
@@ -261,36 +250,16 @@ function samplePath(
   }
   const out: PathSample[] = [];
   const ghost = zoneGhost(zc);
-  const minTravel = minCueTravel(g, type);
-  const rel = routeReliability(type, g.dCueGhost, skill);
   const firstSeg =
     tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
-  let s = 0;
-  for (let i = 0; i + 1 < tr.points.length; i++) {
-    const a = tr.points[i];
-    const b = tr.points[i + 1];
-    const segLen = Math.hypot(b.x - a.x, b.y - a.y);
-    if (segLen < 1e-9) continue;
-    const d = norm(sub(b, a));
-    const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
-    const railRoute = railRouteFactor(type, g.cut, i, skill);
-    for (let t = i === 0 ? WALK_STEP : 0; t <= segLen; t += WALK_STEP) {
-      const travel = (s + t) / locus.eta;
-      const p = add(a, scale(d, t));
-      const v = zoneValue(p, zc, skill);
-      const ease =
-        travel < minTravel
-          ? 0
-          : rel * railFac * railRoute *
-            powerFactor(hitDistance(g, type, travel), skill);
-      out.push({
-        s: travel, p, rails: i, dirAt: d,
-        v,
-        eff: v * ease,
-        inBand: railExcluded(p, norm(sub(ghost, p)), LANDING_RAIL_INSET),
-      });
-    }
-    s += segLen;
+  for (const st of walkExit(tr.points, locus.eta, firstSeg, g, type, skill, WALK_STEP, true)) {
+    const v = zoneValue(st.point, zc, skill);
+    out.push({
+      s: st.travel, p: st.point, rails: st.rails, dirAt: st.dirAt,
+      v,
+      eff: v * st.ease,
+      inBand: railExcluded(st.point, norm(sub(ghost, st.point)), LANDING_RAIL_INSET),
+    });
   }
   return out;
 }

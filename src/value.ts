@@ -108,17 +108,11 @@ export function buildSurfaces(
   skill: SkillProfile,
 ): (ValueSurface | null)[] {
   const out: (ValueSurface | null)[] = balls.map(() => null);
-  let next: ValueSurface | null = null;
+  // Descending build: when ball i is reached, out[i+1] is already filled, so
+  // zoneInputsForBall reads the same gate the old `next` local carried.
   for (let i = balls.length - 1; i >= 1; i--) {
-    const obstacles = balls.slice(i + 1).map((b) => b.pos);
-    const s = buildSurface(
-      balls[i],
-      obstacles,
-      next && next.peak > 0 ? next.at : undefined,
-      skill,
-    );
-    out[i] = s;
-    next = s;
+    const { obstacles, gate } = zoneInputsForBall(balls, i, out);
+    out[i] = buildSurface(balls[i], obstacles, gate, skill);
   }
   return out;
 }
@@ -130,6 +124,28 @@ export function gateFor(
 ): NextValueFn | undefined {
   const s = surfaces[i] ?? null;
   return s && s.peak > 0 ? s.at : undefined;
+}
+
+/**
+ * The one rule for "the Position Zone of ball m" (see CONTEXT.md: Position
+ * Zone). Its obstacles are the balls that come AFTER it — the earlier balls
+ * are already gone by the time it is shot — and its onward-control gate is the
+ * value surface of the NEXT ball (m+1). Every site that builds a zone reads
+ * this rule from here: the backward surfaces below, the ball-in-hand seeds
+ * (seed.ts), the route search (route.ts), the renderer and the explanation
+ * pass (scene.ts, solver.ts). It used to be hand-written five times — as
+ * slice(m+1)/gateFor(m+1), slice(1), and slice(i+2)/gateFor(i+2) — so the gate
+ * index could drift between the window the search scored and the one drawn.
+ */
+export function zoneInputsForBall(
+  balls: Ball[],
+  m: number,
+  surfaces: (ValueSurface | null)[],
+): { obstacles: Vec[]; gate: NextValueFn | undefined } {
+  return {
+    obstacles: balls.slice(m + 1).map((b) => b.pos),
+    gate: gateFor(surfaces, m + 1),
+  };
 }
 
 const cache = new WeakMap<

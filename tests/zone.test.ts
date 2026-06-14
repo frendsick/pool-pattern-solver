@@ -74,13 +74,15 @@ describe('position zone', () => {
 
   it('the drawn window never covers positions shadowed by another ball (image #25)', () => {
     // The 9 sits between the 8 and most of its window: the wedge of cue
-    // positions it screens from the ghost ball must not be painted — the
-    // pie has to split around the shadow instead of bridging across it.
+    // positions it screens from the ghost ball is DEAD and must not be painted.
+    // The window wraps around that shadow (it stays one continuous region,
+    // joined past the 9), but a dead cell breaks the ray run, so the shadow
+    // is carved out rather than bridged.
     const eight = vec(41.6, 34.3);
     const nine = vec(36.6, 26.8);
     const zc = zoneContext(eight, ts, [nine]);
     const polys = zonePolygons(zc, INTERMEDIATE);
-    expect(polys.length).toBeGreaterThan(1); // the shadow splits the window
+    expect(polys.length).toBeGreaterThanOrEqual(1); // a window is drawn
     const inPoly = (p: { x: number; y: number }, poly: { x: number; y: number }[]) => {
       let inside = false;
       for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

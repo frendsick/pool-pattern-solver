@@ -22,7 +22,8 @@ import {
   caromLocus,
 } from './shots';
 import { SkillProfile } from './skill';
-import { NextValueFn, zoneContext, zoneValue } from './zone';
+import { zoneContext, zoneValue } from './zone';
+import { ValueSurface, zoneInputsForBall } from './value';
 import { MAX_ROUTE } from './route';
 import type { ZoneTarget } from './route';
 import type { Node } from './solver';
@@ -111,11 +112,11 @@ function alignedCuts(
 export function initialNodes(
   layout: Layout,
   skill: SkillProfile,
-  nextValue: NextValueFn | undefined,
+  surfaces: (ValueSurface | null)[],
   nextTargets: ZoneTarget[] = [],
 ): Node[] {
   const first = layout.balls[0];
-  const others = layout.balls.slice(1).map((b) => b.pos);
+  const { obstacles: others, gate } = zoneInputsForBall(layout.balls, 0, surfaces);
   const nodes: Node[] = [];
   const angles = [
     -60, -45, -30, -25, -20, -15, -10, -7, -5, -3,
@@ -136,8 +137,8 @@ export function initialNodes(
   for (const pocket of POCKETS) {
     const zc = zoneContext(first.pos, pocket, others);
     if (!zc.ballPathClear) continue;
-    const zcGated = nextValue
-      ? zoneContext(first.pos, pocket, others, [], nextValue)
+    const zcGated = gate
+      ? zoneContext(first.pos, pocket, others, [], gate)
       : zc;
     const aim = norm(sub(pocket.target, first.pos));
     const aimBack = scale(aim, -1);

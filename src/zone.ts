@@ -10,7 +10,6 @@ import {
   ShotType,
   shotGeometry,
   minCueTravel,
-  hitDistance,
   tracePath,
   caromLocus,
   cuePathClear,
@@ -21,11 +20,9 @@ import {
   DIST_NODES,
   DIST_WEIGHTS,
   distanceSigma,
-  drawRailFactor,
   potProbability,
-  powerFactor,
-  railRouteFactor,
   routeReliability,
+  walkExit,
 } from './skill';
 
 /**
@@ -202,8 +199,8 @@ function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
  * (pocket pace, minCueTravel — a thin cut makes the cue ball run whether you
  * like it or not) and (b) the type's execution reliability (draw is always
  * the toughest). Travel chosen beyond the forced minimum mostly remains the
- * Route's problem, but the gate does price hit power (powerFactor) and rigid
- * near-straight multi-rail follow (railRouteFactor). Straight-ish follow can
+ * Route's problem, but the gate does price hit power and rigid near-straight
+ * multi-rail follow (both via routeEase). Straight-ish follow can
  * be powered through top spin, but near-straight sideways stun/draw exits
  * still need a monster stroke, so they stop counting. A near-straight shot
  * mostly offers the aim line itself, which is exactly why straight position
@@ -232,35 +229,26 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
     const locus = caromLocus(g, type);
     if (!locus) continue;
     const minTravel = minCueTravel(g, type);
-    const cap =
-      Math.exp(-minTravel / skill.positionTravelScale) *
-      routeReliability(type, g.dCueGhost, skill);
+    // cap is the exit's ceiling: the pot-forced minimum travel discounted by
+    // positionTravelScale, times the type's reliability. routeEase carries the
+    // per-step rail-room, rail-route and hit-power price (draw rail-room is why
+    // an early first cushion is discounted); forced = cap without reliability,
+    // since routeEase already multiplies reliability back in.
+    const forced = Math.exp(-minTravel / skill.positionTravelScale);
+    const cap = forced * routeReliability(type, g.dCueGhost, skill);
     if (cap <= best) continue; // cannot beat what another exit already offers
     const tr = tracePath(g.ghost, locus.dir, CONTROL_RANGE * locus.eta, z.obstacles, 3);
-    // Draw action is compromised when the first cushion arrives early: the
-    // post-rail part of the exit line is discounted (drawRailFactor).
     const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
-    let s = 0; // cumulative travel at the start of the segment
-    outer: for (let i = 0; i + 1 < tr.points.length; i++) {
-      const a = tr.points[i];
-      const b = tr.points[i + 1];
-      const segLen = dist(a, b);
-      if (segLen < 1e-9) continue;
-      const d = norm(sub(b, a));
-      const railFac = i === 0 ? 1 : drawRailFactor(type, firstSeg, skill);
-      const railRoute = railRouteFactor(type, g.cut, i, skill);
-      for (let t = CONTROL_STEP; t <= segLen; t += CONTROL_STEP) {
-        const travel = (s + t) / locus.eta;
-        if (travel < minTravel) continue;
-        const pf = powerFactor(hitDistance(g, type, travel), skill);
-        if (pf <= 0) break outer; // farther only needs more power
-        const v =
-          sat(bestNextValue(add(a, scale(d, t)), z, skill)) *
-          cap * pf * railFac * railRoute;
-        if (v > best) best = v;
-        if (best >= cap - 1e-9) break outer; // this exit is saturated
+    let priced = false; // have we passed the pot-forced minimum travel yet?
+    for (const st of walkExit(tr.points, locus.eta, firstSeg, g, type, skill, CONTROL_STEP, false)) {
+      if (st.ease <= 0) {
+        if (priced) break; // power exhausted; farther only needs more
+        continue; // still below the pot-forced minimum travel
       }
-      s += segLen;
+      priced = true;
+      const v = sat(bestNextValue(st.point, z, skill)) * forced * st.ease;
+      if (v > best) best = v;
+      if (best >= cap - 1e-9) break; // this exit is saturated
     }
   }
   return best;
@@ -354,14 +342,13 @@ export function zoneBar(
 }
 
 /**
- * Build drawable pie-shaped polygons for the zone: rays fanned around the
- * "straight in" direction (opposite the aim line), each clipped to its first
- * good run. A ray with no good point at all (e.g. the whole direction sits in
- * another ball's shadow) splits the pie — the window must not bridge across a
- * wedge it cannot actually use, so each contiguous run of good rays becomes
- * its own polygon. Rail-band positions that would cue away from the near rail
- * are excluded (railExcluded — along-the-rail shots keep them); if that
- * leaves nothing, the awkward band is reluctantly readmitted.
+ * Build the drawable position-window polygon for the next ball (see
+ * buildWindows for the construction). In short: take the in-bar good region,
+ * fill the still-playable gaps bracketed by good on both sides (so a stripey
+ * fan becomes one uniform window), but neither paint a dead spot nor reach out
+ * into a thin mishit sliver, and draw only the one region the route plays for.
+ * Rail-band positions cueing away from the near rail are excluded first; if
+ * that leaves nothing the band is reluctantly readmitted.
  */
 export function zonePolygons(
   z: ZoneContext,
@@ -371,12 +358,13 @@ export function zonePolygons(
   // drawn window must not clip them on the radius alone.
   maxRadius = 85,
   cap = Infinity,
+  landing?: Vec,
 ): Vec[][] {
   if (!z.ballPathClear) return [];
   const minValue = zoneBar(z, skill, reference, cap);
   return (
-    buildPies(z, skill, minValue, maxRadius, true) ??
-    buildPies(z, skill, minValue, maxRadius, false) ??
+    buildWindows(z, skill, minValue, maxRadius, true, landing) ??
+    buildWindows(z, skill, minValue, maxRadius, false, landing) ??
     []
   );
 }
@@ -399,86 +387,236 @@ function scanFan(
   }
 }
 
-function buildPies(
+// Fan resolution. Finer than scanFan's grid: the outline must not clip a
+// corner the route search just placed a landing in (cachedOnwardControl keeps
+// this cheap).
+const FAN_STEPS = 72;
+const FAN_DR = 0.75;
+
+// Window wedges thinner than this many rays (~1.7°/ray) are dissolved by the
+// angular opening — a sliver that narrow is a mishit line, not a real leave.
+const OPEN_RAYS = 4;
+
+// The opening spares everything within this radius (inches) of the route's
+// landing — the spot it plays for stays in the window even near an eroded edge.
+const LANDING_KEEP = 7;
+
+// Fan-cell classes.
+const DEAD = 0; // off table, blocked, too thin a cut, or an awkward rail band
+const FEAS = 1; // playable (pottable with onward control) but below the bar
+const CORE = 2; // in-bar — a spot you'd be happy with
+
+interface Lobe {
+  outer: Vec[];
+  inner: Vec[];
+  last: [number, number]; // radial-cell span of the run on the previous ray
+  cells: number; // window cells absorbed, a drawn-area proxy
+  played: boolean; // holds the cell the route's landing falls in
+}
+
+/**
+ * Builds the window mask, then stitches and selects it. The mask starts as the
+ * morphological CLOSING of the in-bar (CORE) region within the playable area:
+ *
+ * Each fan cell is classed CORE, FEAS (playable but below the bar), or DEAD.
+ * A feasible cell joins the mask when it is BRACKETED by core — between two
+ * core cells along a ray (no dead cell between) OR between two core cells at
+ * one radius across the fan. A below-bar STRIPE between two good lobes is
+ * bracketed, so the lobes merge into one uniform window across it (stop there
+ * and recover with draw, follow, or a rail). A DEAD gap is never bridged or
+ * painted, so a ball cutting clean across leaves its far side separate. Then an
+ * angular OPENING dissolves window wedges thinner than OPEN_RAYS — the thin
+ * radial slivers reaching outward that the closing's cross-fan bracket would
+ * otherwise leave, which are mishit lines, not leaves — while a disk around the
+ * landing is spared (the route's own target is always a real leave).
+ *
+ * The mask is stitched into lobes (faithful — runs break at every non-mask
+ * cell) and exactly one is drawn: the lobe holding `landing` (the run the route
+ * plays for), else the largest. The far side of a dead barrier, the dissolved
+ * slivers, and any stray island all fall away.
+ */
+function buildWindows(
   z: ZoneContext,
   skill: SkillProfile,
   minValue: number,
   maxRadius: number,
   excludeRailBand: boolean,
+  landing?: Vec,
 ): Vec[][] | null {
   const aimBack = rayDir(z); // direction away from pocket
   const halfFan = Math.min(skill.maxCut, (78 * Math.PI) / 180);
-  // Finer than the scanFan grid: the outline must not clip a corner the
-  // route search just placed a landing in (cachedOnwardControl keeps this cheap).
-  const steps = 72;
   const inner = 2 * BALL_R + 0.3;
   const ghost = zoneGhost(z);
+  const nr = Math.floor((maxRadius - inner) / FAN_DR) + 1;
+  const radius = (j: number) => inner + j * FAN_DR;
 
-  // A ray can hold SEVERAL in-bar runs — e.g. a rich stretch pinched in the
-  // middle by another ball's clearance ring (image #29 fallout, seed 63).
-  // Each run extends the lobe whose run on the previous ray it radially
-  // overlaps; runs that bridge nothing start a new lobe, lobes nothing
-  // extends are flushed. The dip itself stays out of every lobe, so the
-  // window still never bridges a dead stretch.
-  interface Lobe {
-    outer: Vec[];
-    inner: Vec[];
-    last: [number, number];
+  // Classify the fan and remember each ray's direction.
+  const dirs: Vec[] = [];
+  const cls: Uint8Array[] = [];
+  for (let i = 0; i <= FAN_STEPS; i++) {
+    const dir = rotate(aimBack, -halfFan + (2 * halfFan * i) / FAN_STEPS);
+    dirs.push(dir);
+    const row = new Uint8Array(nr);
+    for (let j = 0; j < nr; j++) {
+      const p = add(z.ball, scale(dir, radius(j)));
+      if (excludeRailBand && railExcluded(p, norm(sub(ghost, p)))) continue; // DEAD
+      const v = zoneValue(p, z, skill);
+      row[j] = v <= 0 ? DEAD : v >= minValue ? CORE : FEAS;
+    }
+    cls.push(row);
   }
-  const pies: Vec[][] = [];
-  let lobes: Lobe[] = [];
-  const flush = (l: Lobe) => {
-    if (l.outer.length >= 2) pies.push([...l.outer, ...l.inner.reverse()]);
+
+  // Window mask = core + feasible bracketed by core within a dead-free run,
+  // taken both along each ray (radial) and across the fan at each radius
+  // (angular). `bracket` walks one dead-free run and fills core..core.
+  const win = cls.map(() => new Uint8Array(nr));
+  const bracket = (len: number, at: (k: number) => number, set: (k: number) => void) => {
+    for (let s = 0; s < len; ) {
+      if (at(s) === DEAD) { s++; continue; }
+      let e = s;
+      while (e < len && at(e) !== DEAD) e++;
+      let fc = -1;
+      let lc = -1;
+      for (let k = s; k < e; k++) if (at(k) === CORE) { if (fc < 0) fc = k; lc = k; }
+      if (fc >= 0) for (let k = fc; k <= lc; k++) set(k);
+      s = e;
+    }
   };
-  for (let i = 0; i <= steps; i++) {
-    const phi = -halfFan + (2 * halfFan * i) / steps;
-    const dir = rotate(aimBack, phi);
-    const runs: [number, number][] = [];
-    let start: number | null = null;
-    let prev = 0;
-    for (let r = inner; r <= maxRadius; r += 0.75) {
-      const p = add(z.ball, scale(dir, r));
-      const good =
-        (!excludeRailBand || !railExcluded(p, norm(sub(ghost, p)))) &&
-        zoneValue(p, z, skill) >= minValue;
-      if (good) {
-        if (start === null) start = r;
-        prev = r;
-      } else if (start !== null) {
-        runs.push([start, prev]);
-        start = null;
+  for (let i = 0; i <= FAN_STEPS; i++) {
+    bracket(nr, (j) => cls[i][j], (j) => { win[i][j] = 1; });
+  }
+  for (let j = 0; j < nr; j++) {
+    bracket(FAN_STEPS + 1, (i) => cls[i][j], (i) => { win[i][j] = 1; });
+  }
+
+  // Angular opening: erode then dilate across the fan, dissolving window wedges
+  // thinner than OPEN_RAYS rays. A thin radial sliver — a long finger of "good"
+  // cells that the next ball is technically pottable from but the cue ball
+  // could only reach by overhitting — is a mishit, not a leave; opening removes
+  // it (and disconnects thin necks, so keep-the-played-side then drops the
+  // appendage) while leaving the body of the window untouched.
+  const mask = openAngular(win, FAN_STEPS + 1, nr, OPEN_RAYS);
+  // The spot the route actually plays for is by definition a real leave, not a
+  // sliver: exempt a small disk around the landing from the opening so a
+  // landing near an eroded edge stays inside the drawn window.
+  if (landing) {
+    for (let i = 0; i <= FAN_STEPS; i++) for (let j = 0; j < nr; j++) {
+      if (win[i][j] && dist(add(z.ball, scale(dirs[i], radius(j))), landing) <= LANDING_KEEP) {
+        mask[i][j] = 1;
       }
     }
-    if (start !== null) runs.push([start, prev]);
+  }
+
+  // The fan cell the landing falls in, so the played lobe can be picked by cell
+  // membership (robust where the annular polygon's concavities would fool a
+  // point-in-polygon test). -1 if the landing is off the fan.
+  const land = landing ? landingCell(landing, z.ball, aimBack, halfFan, inner, nr) : null;
+
+  // Stitch the mask into lobes: per ray, runs of window cells (broken at any
+  // gap), each extending the one lobe it radially overlaps.
+  const dirAt = (i: number) => dirs[i];
+  const done: Lobe[] = [];
+  const close = (l: Lobe) => { if (l.outer.length >= 2) done.push(l); };
+  let open: Lobe[] = [];
+  for (let i = 0; i <= FAN_STEPS; i++) {
+    const runs: [number, number][] = [];
+    let lo = -1;
+    for (let j = 0; j < nr; j++) {
+      if (mask[i][j]) { if (lo < 0) lo = j; }
+      else if (lo >= 0) { runs.push([lo, j - 1]); lo = -1; }
+    }
+    if (lo >= 0) runs.push([lo, nr - 1]);
+    // The run the landing sits in on its own ray tags its lobe as the played one.
+    const landRun = land && i === land[0]
+      ? runs.findIndex((run) => run[0] <= land[1] && land[1] <= run[1])
+      : -1;
 
     const kept: Lobe[] = [];
     const used = new Set<number>();
-    for (const l of lobes) {
-      const j = runs.findIndex(
+    for (const l of open) {
+      const k = runs.findIndex(
         (run, idx) => !used.has(idx) && run[0] <= l.last[1] && run[1] >= l.last[0],
       );
-      if (j >= 0) {
-        used.add(j);
-        l.outer.push(add(z.ball, scale(dir, runs[j][1])));
-        l.inner.push(add(z.ball, scale(dir, runs[j][0])));
-        l.last = runs[j];
-        kept.push(l);
-      } else {
-        flush(l); // dead direction for this lobe: no bridging across it
-      }
+      if (k < 0) { close(l); continue; }
+      used.add(k);
+      l.outer.push(add(z.ball, scale(dirAt(i), radius(runs[k][1]))));
+      l.inner.push(add(z.ball, scale(dirAt(i), radius(runs[k][0]))));
+      l.cells += runs[k][1] - runs[k][0] + 1;
+      l.last = runs[k];
+      l.played = l.played || k === landRun;
+      kept.push(l);
     }
     runs.forEach((run, idx) => {
       if (used.has(idx)) return;
       kept.push({
-        outer: [add(z.ball, scale(dir, run[1]))],
-        inner: [add(z.ball, scale(dir, run[0]))],
+        outer: [add(z.ball, scale(dirAt(i), radius(run[1])))],
+        inner: [add(z.ball, scale(dirAt(i), radius(run[0])))],
         last: run,
+        cells: run[1] - run[0] + 1,
+        played: idx === landRun,
       });
     });
-    lobes = kept;
+    open = kept;
   }
-  for (const l of lobes) flush(l);
-  return pies.length > 0 ? pies : null;
+  for (const l of open) close(l);
+
+  if (done.length === 0) return null;
+  let pick = done.find((l) => l.played);
+  if (!pick) for (const l of done) if (!pick || l.cells > pick.cells) pick = l;
+  return [[...pick!.outer, ...pick!.inner.reverse()]];
+}
+
+/** The (ray, radial) fan cell a point falls in, or null if off the fan. */
+function landingCell(
+  p: Vec,
+  ball: Vec,
+  aimBack: Vec,
+  halfFan: number,
+  inner: number,
+  nr: number,
+): [number, number] | null {
+  const d = sub(p, ball);
+  const len = Math.hypot(d.x, d.y);
+  if (len < 1e-6) return null;
+  let phi = Math.atan2(d.y, d.x) - Math.atan2(aimBack.y, aimBack.x);
+  while (phi > Math.PI) phi -= 2 * Math.PI;
+  while (phi < -Math.PI) phi += 2 * Math.PI;
+  const i = Math.round(((phi + halfFan) / (2 * halfFan)) * FAN_STEPS);
+  const j = Math.round((len - inner) / FAN_DR);
+  if (i < 0 || i > FAN_STEPS || j < 0 || j >= nr) return null;
+  return [i, j];
+}
+
+/**
+ * Morphological opening along the fan (erode then dilate by `rays` rays, at
+ * each radius independently). Removes window wedges narrower than 2*rays+1 rays
+ * — the thin radial slivers — while preserving the radial extent of everything
+ * wider. Radial thinness is left alone: a wedge can be as short as it likes.
+ */
+function openAngular(m: Uint8Array[], ni: number, nj: number, rays: number): Uint8Array[] {
+  if (rays <= 0) return m;
+  const eroded = m.map(() => new Uint8Array(nj));
+  for (let j = 0; j < nj; j++) {
+    for (let i = 0; i < ni; i++) {
+      let all = true;
+      for (let a = -rays; a <= rays; a++) {
+        const ii = i + a;
+        if (ii < 0 || ii >= ni || !m[ii][j]) { all = false; break; }
+      }
+      if (all) eroded[i][j] = 1;
+    }
+  }
+  const out = m.map(() => new Uint8Array(nj));
+  for (let j = 0; j < nj; j++) {
+    for (let i = 0; i < ni; i++) {
+      if (!m[i][j]) continue;
+      for (let a = -rays; a <= rays; a++) {
+        const ii = i + a;
+        if (ii >= 0 && ii < ni && eroded[ii][j]) { out[i][j] = 1; break; }
+      }
+    }
+  }
+  return out;
 }
 
 function rayDir(z: ZoneContext): Vec {

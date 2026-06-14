@@ -2,9 +2,16 @@
 // this parameter object, so a skill slider later is a pure profile swap
 // (ADR-0002). v1 ships one fixed intermediate profile.
 
-import { Vec } from './geometry';
+import { Vec, add, scale, norm, sub, dist } from './geometry';
 import { BALL_R, Pocket, effectiveAcceptance } from './table';
-import { ShotGeometry, ShotType, approachDeviation, signedRollShare } from './shots';
+import {
+  ShotGeometry,
+  ShotType,
+  approachDeviation,
+  signedRollShare,
+  minCueTravel,
+  hitDistance,
+} from './shots';
 
 export interface SkillProfile {
   /** Std dev of the cue aim direction error, radians. */
@@ -308,6 +315,94 @@ export function railRouteFactor(
     return 1;
   }
   return skill.straightFollowMultiRailReliability ** (rails - 1);
+}
+
+/**
+ * Route ease at a chosen travel: the type's execution reliability, the
+ * hit-power price the travel demands at this cut, and draw rail-room (see
+ * CONTEXT.md: Route). This is the factor that prices a position route's
+ * P(reach the next zone) on the effective scale (zone value x ease), and it is
+ * 0 below the pocket-pace minimum travel (the cue ball cannot travel less and
+ * still drive the object ball home with margin). The single source for what
+ * the route search (route.ts) and the onward-control gate (zone.ts) each
+ * computed inline three times. `rails` and `firstRailDist` come from the
+ * caller's path trace: the segment index and first-segment length on a locus
+ * walk, the total rail count and first-rail arc length on an exact-curve walk.
+ */
+export function routeEase(
+  g: ShotGeometry,
+  type: ShotType,
+  travel: number,
+  rails: number,
+  firstRailDist: number | null,
+  skill: SkillProfile,
+): number {
+  if (travel < minCueTravel(g, type)) return 0;
+  const railFac = rails === 0 ? 1 : drawRailFactor(type, firstRailDist, skill);
+  return (
+    routeReliability(type, g.dCueGhost, skill) *
+    railFac *
+    railRouteFactor(type, g.cut, rails, skill) *
+    powerFactor(hitDistance(g, type, travel), skill)
+  );
+}
+
+/** One priced step of a walked exit path, see {@link walkExit}. */
+export interface ExitStep {
+  /** Cue-ball travel to this step, inches. */
+  travel: number;
+  /** Landing point. */
+  point: Vec;
+  /** Cushions contacted before this step (segment index along the trace). */
+  rails: number;
+  /** Path direction at this step. */
+  dirAt: Vec;
+  /** routeEase at this travel (0 below pocket pace or once power runs out). */
+  ease: number;
+}
+
+/**
+ * Walk a traced exit path off the ghost ball, yielding one priced step every
+ * `step` inches of travel: its landing point, the cushion count so far, the
+ * path direction, and routeEase at that travel. This is the trace/segment/step
+ * loop the route search (route.ts samplePath) and the onward-control gate
+ * (zone.ts onwardControl) both used to inline — the caller traces (it owns the
+ * range and obstacle set) and passes the points, the locus speed factor `eta`,
+ * and the first-segment length for draw rail-room. `includeSegStart` samples
+ * the start (t=0) of post-rail segments — the route search wants the landing
+ * right at a cushion — whereas the gate starts each segment at `step`. Being a
+ * generator lets the gate stop early (saturation, power exhausted) without the
+ * route search losing any samples.
+ */
+export function* walkExit(
+  points: Vec[],
+  eta: number,
+  firstSeg: number | null,
+  g: ShotGeometry,
+  type: ShotType,
+  skill: SkillProfile,
+  step: number,
+  includeSegStart: boolean,
+): Generator<ExitStep> {
+  let s = 0; // cumulative travel at the start of the segment
+  for (let i = 0; i + 1 < points.length; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const segLen = dist(a, b);
+    if (segLen < 1e-9) continue;
+    const d = norm(sub(b, a));
+    for (let t = i === 0 || !includeSegStart ? step : 0; t <= segLen; t += step) {
+      const travel = (s + t) / eta;
+      yield {
+        travel,
+        point: add(a, scale(d, t)),
+        rails: i,
+        dirAt: d,
+        ease: routeEase(g, type, travel, i, firstSeg, skill),
+      };
+    }
+    s += segLen;
+  }
 }
 
 /**
