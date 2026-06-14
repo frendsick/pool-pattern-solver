@@ -196,10 +196,20 @@ shot and what window is drawn:
 - `CONTROL_STEP` and `CONTROL_RANGE`: scan resolution and reach for onward
   control exits.
 - `STRAIGHT_CUT`: threshold where stop-shot onward control is considered.
-- `ZONE_RELATIVE` and `ZONE_FLOOR`: quality bar for a point to count inside a
-  zone.
-- `zonePeak`, `zoneBar`, and `zonePolygons`: formulas that define the
-  peak-value anchor, display threshold, and drawable pie shapes.
+- `ZONE_RELATIVE` and `ZONE_FLOOR`: quality bar (the in-bar "core") for a point
+  to count inside a zone.
+- `zonePeak`, `zoneBar`, and `zonePolygons`/`buildWindows`: the peak-value
+  anchor, display threshold, and the drawn window polygon. `buildWindows` is the
+  morphological closing of the in-bar (core) region: still-playable below-bar
+  gaps bracketed by core (along a ray or across the fan) are filled, so a
+  stripey fan becomes one uniform window, but dead spots are never painted and
+  the outer feasible fringe is not added.
+- `OPEN_RAYS` and `LANDING_KEEP`: the angular opening dissolves window wedges
+  thinner than `OPEN_RAYS` rays — thin radial slivers reaching outward are
+  mishit lines, not leaves — while sparing a `LANDING_KEEP`-inch disk around the
+  route's landing. Only the one lobe holding the landing (else the largest) is
+  drawn, so a ball cutting clean across shows just the played side, and stray
+  islands fall away.
 - `cachedOnwardControl`: memoization quantization for onward-control values.
 
 Zone logic affects both scoring and rendering. The route search and displayed
