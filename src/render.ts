@@ -1,5 +1,5 @@
 // Pure SVG renderer: top-down table diagram in the style of the knowledgebase
-// articles — green felt, tan rails, shaded pie-shaped position zones, arrowed
+// articles — green felt, tan rails, shaded position-zone windows, arrowed
 // cue-ball paths, dashed ghost balls.
 
 import { Vec } from './geometry';
@@ -19,7 +19,7 @@ export interface SceneShot {
 
 export interface Scene {
   balls: Ball[];
-  /** Position window polygons (one window can split around a blocking ball). */
+  /** Position window polygons (a ball cutting clean across can split one). */
   zone: Vec[][];
   /** Zones via other open pockets: a fainter, second-choice expansion. */
   altZones: Vec[][];

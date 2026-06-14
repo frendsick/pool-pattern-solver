@@ -48,11 +48,12 @@ describe('side-pocket hanger at a steep approach (image #29, round 17)', () => {
 });
 
 // Fallout guard: seed 63's shot-1 window has a rich stretch pinched mid-ray
-// by the 9's clearance ring. buildPies used to stop the whole ray at the
-// first below-bar dip past a good run, clipping the big outer lobe the
-// route search had just landed in. Rays now carry multiple radial runs that
-// stitch into separate lobes, so the drawn window keeps the landing.
-describe('mid-ray pinch keeps the outer lobe (seed 63, round 17)', () => {
+// by the 9's clearance ring. An earlier builder stopped the whole ray at the
+// first below-bar dip past a good run, clipping the big outer region the route
+// search had just landed in. buildWindows bridges below-bar (still-playable)
+// stripes and breaks only at dead cells, so the window stays continuous
+// through the dip and keeps the landing.
+describe('mid-ray pinch keeps the landing in the window (seed 63, round 17)', () => {
   function inPoly(p: Vec, poly: Vec[]): boolean {
     let inside = false;
     for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {

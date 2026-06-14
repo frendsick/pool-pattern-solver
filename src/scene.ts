@@ -69,7 +69,9 @@ export function sceneForStep(
     // stretch can reach (windowRef): the drawn window is the stretch the
     // route is playing for, and the planned landing sits inside it.
     const cap = shot.windowRef ?? Infinity;
-    zone = zonePolygons(primary, skill, 0, 85, cap);
+    // Pass the planned landing so a ball-split window keeps the side the route
+    // actually plays for (zone.ts buildWindows).
+    zone = zonePolygons(primary, skill, 0, 85, cap, shot.landing ?? undefined);
     // The best other pocket expands the window, but as a second choice held
     // to the primary pocket's quality bar; showing every pocket's zone would
     // bury the primary one in noise. The alt pockets reuse the primary zone's
