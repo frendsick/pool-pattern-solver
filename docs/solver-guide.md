@@ -200,10 +200,13 @@ shot and what window is drawn:
   to count inside a zone.
 - `zonePeak`, `zoneBar`, and `zonePolygons`/`buildWindows`: the peak-value
   anchor, display threshold, and the drawn window polygon. `buildWindows` is the
-  morphological closing of the in-bar (core) region: still-playable below-bar
-  gaps bracketed by core (along a ray or across the fan) are filled, so a
-  stripey fan becomes one uniform window, but dead spots are never painted and
-  the outer feasible fringe is not added.
+  morphological closing of the in-bar (core) region: shallow, still-playable
+  below-bar gaps bracketed by core (along a ray or across the fan) are filled,
+  so a stripey fan becomes one uniform window, but weak dips, dead spots, and
+  the outer feasible fringe are not painted.
+- `BRIDGE_RELATIVE`: the drawn-window closing threshold for below-bar dips.
+  It controls how close a feasible dip must remain to the window bar before
+  the renderer may bridge it into one clamped drag polygon.
 - `OPEN_RAYS` and `LANDING_KEEP`: the angular opening dissolves window wedges
   thinner than `OPEN_RAYS` rays — thin radial slivers reaching outward are
   mishit lines, not leaves — while sparing a `LANDING_KEEP`-inch disk around the
