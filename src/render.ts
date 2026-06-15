@@ -3,7 +3,17 @@
 // cue-ball paths, dashed ghost balls.
 
 import { Vec } from './geometry';
-import { TABLE_W, TABLE_H, BALL_R, POCKETS, Ball } from './table';
+import {
+  TABLE_W,
+  TABLE_H,
+  BALL_R,
+  POCKETS,
+  Ball,
+  MAX_X,
+  MAX_Y,
+  MIN_X,
+  MIN_Y,
+} from './table';
 
 export const SVG_SCALE = 9; // px per inch
 export const RAIL_INCHES = 5; // rail width, inches
@@ -31,6 +41,8 @@ export interface Scene {
   zone: Vec[][];
   /** Zones via other open pockets: a fainter, second-choice expansion. */
   altZones: Vec[][];
+  /** Sampled opening Ball in Hand placements that can complete a Pattern. */
+  validStartPoints?: Vec[];
   shot: SceneShot | null;
   /** Faint preview paths (overview step). */
   ghostPaths: Vec[][];
@@ -140,9 +152,29 @@ function tableBase(): string {
   return s;
 }
 
+function legalCueMask(balls: Ball[]): string {
+  const x = X(MIN_X);
+  const y = Y(MAX_Y);
+  const w = (MAX_X - MIN_X) * S;
+  const h = (MAX_Y - MIN_Y) * S;
+  let s = `<mask id="legalCueMask" maskUnits="userSpaceOnUse">`;
+  s += `<rect x="0" y="0" width="${VIEW_W}" height="${VIEW_H}" fill="black"/>`;
+  s += `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="white"/>`;
+  for (const b of balls) {
+    s += `<circle cx="${X(b.pos.x)}" cy="${Y(b.pos.y)}" r="${2 * BALL_R * S}" fill="black"/>`;
+  }
+  s += `</mask>`;
+  return s;
+}
+
 export function renderScene(scene: Scene): string {
   const w = VIEW_W;
   const h = VIEW_H;
+  const hasValidStarts = (scene.validStartPoints?.length ?? 0) > 0;
+  let defs =
+    `<marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d63a3a"/></marker>` +
+    `<marker id="arrowDark" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>`;
+  if (hasValidStarts) defs += legalCueMask(scene.balls);
   let body = tableBase();
 
   if (scene.originZoneHighlighted) {
@@ -153,6 +185,14 @@ export function renderScene(scene: Scene): string {
         body += `<polygon points="${oz.map(pt).join(' ')}" ${originAttrs}/>`;
       }
     }
+  }
+
+  if (hasValidStarts) {
+    body += `<g mask="url(#legalCueMask)">`;
+    for (const p of scene.validStartPoints ?? []) {
+      body += `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${BALL_R * S}" fill="rgba(253,253,246,0.22)" stroke="rgba(253,253,246,0.55)" stroke-width="0.6"/>`;
+    }
+    body += `</g>`;
   }
 
   for (const az of scene.altZones) {
@@ -188,8 +228,7 @@ export function renderScene(scene: Scene): string {
   return (
     `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
     `<defs>` +
-    `<marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d63a3a"/></marker>` +
-    `<marker id="arrowDark" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>` +
+    defs +
     `</defs>` +
     body +
     `</svg>`

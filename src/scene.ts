@@ -51,6 +51,8 @@ interface SceneOptions {
   cue?: Vec;
   previewShot?: PlannedShot | null;
   highlightOriginZone?: boolean;
+  validStartPoints?: Vec[];
+  suppressPattern?: boolean;
 }
 
 export function sceneForStep(
@@ -78,14 +80,31 @@ export function sceneForStep(
       originZone: [],
       zone: [],
       altZones: [],
+      validStartPoints: options.validStartPoints,
       shot: null,
-      ghostPaths: shots.flatMap((sh) => (sh.path ? [sh.path] : [])),
-      cue: shots[0].cuePos,
-      cueDraggable: false,
+      ghostPaths: options.suppressPattern
+        ? []
+        : shots.flatMap((sh) => (sh.path ? [sh.path] : [])),
+      cue: options.cue ?? shots[0].cuePos,
+      cueDraggable: true,
     };
   }
   const k = s - 1; // shot number, 1-based
   const shot = shots[k - 1];
+  if (options.suppressPattern) {
+    return {
+      balls: layout.balls.slice(k - 1),
+      originZone: [],
+      originZoneHighlighted: false,
+      zone: [],
+      altZones: [],
+      validStartPoints: options.validStartPoints,
+      shot: null,
+      ghostPaths: [],
+      cue: options.cue ?? shot.cuePos,
+      cueDraggable: true,
+    };
+  }
   const inPreview = Object.prototype.hasOwnProperty.call(options, 'previewShot');
   const displayShot = options.previewShot ?? shot;
   const next = shots[k] ?? null;
@@ -129,6 +148,7 @@ export function sceneForStep(
     originZoneHighlighted: options.highlightOriginZone ?? false,
     zone,
     altZones,
+    validStartPoints: options.validStartPoints,
     shot: inPreview && !options.previewShot
       ? null
       : {
