@@ -51,7 +51,6 @@ interface SceneOptions {
   cue?: Vec;
   previewShot?: PlannedShot | null;
   highlightOriginZone?: boolean;
-  validStartPoints?: Vec[];
   suppressPattern?: boolean;
 }
 
@@ -80,7 +79,6 @@ export function sceneForStep(
       originZone: [],
       zone: [],
       altZones: [],
-      validStartPoints: options.validStartPoints,
       shot: null,
       ghostPaths: options.suppressPattern
         ? []
@@ -98,7 +96,6 @@ export function sceneForStep(
       originZoneHighlighted: false,
       zone: [],
       altZones: [],
-      validStartPoints: options.validStartPoints,
       shot: null,
       ghostPaths: [],
       cue: options.cue ?? shot.cuePos,
@@ -148,7 +145,6 @@ export function sceneForStep(
     originZoneHighlighted: options.highlightOriginZone ?? false,
     zone,
     altZones,
-    validStartPoints: options.validStartPoints,
     shot: inPreview && !options.previewShot
       ? null
       : {

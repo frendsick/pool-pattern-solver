@@ -13,11 +13,7 @@ import {
   pointInPolygons,
   wholeTablePolygon,
 } from './interaction';
-import {
-  openingPatternFromCue,
-  openingSamplePoints,
-} from './opening-validity';
-import { surfacesForLayout } from './value';
+import { openingPatternFromCue } from './opening-validity';
 
 const MIN_BALLS = 2;
 const MAX_BALLS = 9;
@@ -54,18 +50,6 @@ type AlternativeDrag = {
 
 type DragState = OpeningDrag | AlternativeDrag;
 
-type OpeningValidity = {
-  status: 'idle' | 'pending' | 'ready';
-  points: Vec[];
-  done: number;
-  total: number;
-};
-
-type OpeningValidityJob = {
-  canceled: boolean;
-  timer: number | null;
-};
-
 function selectedBallCount(): number {
   const n = Number(el.ballCount.value);
   return Math.min(MAX_BALLS, Math.max(MIN_BALLS, Number.isFinite(n) ? n : DEFAULT_BALLS));
@@ -77,13 +61,6 @@ let activeOpeningPlacement: OpeningPlacement = 'solver';
 let step = 0; // 0 = first-look layout, 1 = overview, 2..N+1 = shots
 let drag: DragState | null = null;
 let statusCaption: string | null = null;
-let openingValidity: OpeningValidity = {
-  status: 'idle',
-  points: [],
-  done: 0,
-  total: 0,
-};
-let openingValidityJob: OpeningValidityJob | null = null;
 
 function captionForStep(
   pattern: Pattern,
@@ -116,10 +93,6 @@ function captionForStep(
   return `<strong>Shot ${s - 1}.</strong> ${shot.explanation}`;
 }
 
-function validStartPointsForDrag(): Vec[] | undefined {
-  return openingValidity.status === 'ready' ? openingValidity.points : undefined;
-}
-
 function renderCurrent(): void {
   if (!puzzle || !activePattern) return;
   const n = activePattern.shots.length;
@@ -131,11 +104,7 @@ function renderCurrent(): void {
     drag?.kind === 'alternative'
       ? { cue: drag.cue, previewShot: drag.preview, highlightOriginZone: true }
       : drag?.kind === 'opening'
-        ? {
-            cue: drag.cue,
-            suppressPattern: true,
-            validStartPoints: validStartPointsForDrag(),
-          }
+        ? { cue: drag.cue, suppressPattern: true }
         : {},
   );
   el.table.innerHTML = renderScene(scene);
@@ -147,9 +116,7 @@ function renderCurrent(): void {
         : `<strong>Alternative leave.</strong> Best live route reaches the shown Position Window about <strong>${Math.round(reach * 100)}%</strong> of the time.`;
   } else if (drag?.kind === 'opening') {
     el.caption.innerHTML =
-      openingValidity.status === 'ready'
-        ? `<strong>Ball in hand.</strong> Valid opening placements are highlighted.`
-        : `<strong>Ball in hand.</strong> Release the cue ball to solve from this exact placement.`;
+      `<strong>Ball in hand.</strong> Release the cue ball to solve from this exact placement.`;
   } else if (statusCaption) {
     el.caption.innerHTML = statusCaption;
   } else {
@@ -175,74 +142,8 @@ function showStatus(message: string): void {
   renderCurrent();
 }
 
-function resetOpeningValidity(): void {
-  openingValidity = {
-    status: 'idle',
-    points: [],
-    done: 0,
-    total: 0,
-  };
-}
-
-function cancelOpeningValidity(): void {
-  const job = openingValidityJob;
-  if (job?.timer != null) {
-    window.clearTimeout(job.timer);
-  }
-  if (job) job.canceled = true;
-  openingValidityJob = null;
-  resetOpeningValidity();
-}
-
-function startOpeningValidityJob(): void {
-  if (!puzzle) return;
-  cancelOpeningValidity();
-
-  const layout = puzzle.layout;
-  const surfaces = surfacesForLayout(layout, INTERMEDIATE);
-  const samples = openingSamplePoints(layout);
-  const job: OpeningValidityJob = { canceled: false, timer: null };
-  openingValidityJob = job;
-  openingValidity = {
-    status: 'pending',
-    points: [],
-    done: 0,
-    total: samples.length,
-  };
-  if (samples.length === 0) {
-    openingValidity.status = 'ready';
-    openingValidityJob = null;
-    return;
-  }
-
-  let i = 0;
-  const run = () => {
-    if (job.canceled || !puzzle || puzzle.layout !== layout) return;
-    const started = performance.now();
-    do {
-      const cue = samples[i];
-      if (openingPatternFromCue(layout, INTERMEDIATE, cue, surfaces)) {
-        openingValidity.points.push(cue);
-      }
-      i++;
-    } while (i < samples.length && performance.now() - started < 8);
-
-    openingValidity.done = i;
-    if (i < samples.length) {
-      job.timer = window.setTimeout(run, 0);
-      return;
-    }
-
-    openingValidity.status = 'ready';
-    openingValidityJob = null;
-    if (drag?.kind === 'opening') renderCurrent();
-  };
-  job.timer = window.setTimeout(run, 0);
-}
-
 function newPuzzle(seed: number): void {
   const ballCount = selectedBallCount();
-  cancelOpeningValidity();
   clearStatus();
   el.caption.textContent = 'Generating layout…';
   el.newLayout.disabled = true;
@@ -258,7 +159,6 @@ function newPuzzle(seed: number): void {
       el.caption.textContent = 'Could not generate a runnable layout — try again.';
       return;
     }
-    startOpeningValidityJob();
     renderCurrent();
   }, 20);
 }
@@ -317,13 +217,16 @@ function pointerHitsOpeningCue(p: Vec): boolean {
 
 function commitOpeningCue(cue: Vec, targetStep: number): boolean {
   if (!puzzle) return false;
+  // When a cue ball is already placed (a drag), a rejected spot snaps it back
+  // to where the drag started; at step 0 there is no prior spot to return to.
+  const returned = step !== 0 ? ' — cue ball returned to its previous spot' : '';
   if (!legalCuePosition(cue, puzzle.layout.balls)) {
-    showStatus(`<strong>Ball in hand.</strong> Cannot spot the cue ball there.`);
+    showStatus(`<strong>Invalid placement.</strong> The cue ball overlaps another ball${returned}.`);
     return false;
   }
   const pattern = openingPatternFromCue(puzzle.layout, INTERMEDIATE, cue);
   if (!pattern) {
-    showStatus(`<strong>Ball in hand.</strong> No complete run-out from that spot.`);
+    showStatus(`<strong>Invalid placement.</strong> No complete run-out from there${returned}.`);
     return false;
   }
   activePattern = pattern;
