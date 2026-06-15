@@ -50,6 +50,7 @@ export function originWindowForStep(
 interface SceneOptions {
   cue?: Vec;
   previewShot?: PlannedShot | null;
+  highlightOriginZone?: boolean;
 }
 
 export function sceneForStep(
@@ -125,6 +126,7 @@ export function sceneForStep(
   return {
     balls: layout.balls.slice(k - 1),
     originZone: originWindowForStep(pattern, s, skill),
+    originZoneHighlighted: options.highlightOriginZone ?? false,
     zone,
     altZones,
     shot: inPreview && !options.previewShot

@@ -45,6 +45,11 @@ describe('scene draws the Position Zone the route was scored against', () => {
     expect(firstShot.originZone).toHaveLength(1);
     expect(firstShot.originZone[0]).toHaveLength(4);
     expect(firstShot.cueDraggable).toBe(true);
+    expect(firstShot.originZoneHighlighted).toBe(false);
+    expect(
+      sceneForStep(layout, pattern, 2, INTERMEDIATE, { highlightOriginZone: true })
+        .originZoneHighlighted,
+    ).toBe(true);
 
     const secondShot = sceneForStep(layout, pattern, 3, INTERMEDIATE);
     expect(secondShot.originZone.length).toBeGreaterThan(0);

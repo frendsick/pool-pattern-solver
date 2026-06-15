@@ -68,7 +68,7 @@ function renderCurrent(): void {
     activePattern,
     step,
     INTERMEDIATE,
-    drag ? { cue: drag.cue, previewShot: drag.preview } : {},
+    drag ? { cue: drag.cue, previewShot: drag.preview, highlightOriginZone: true } : {},
   );
   el.table.innerHTML = renderScene(
     scene,
