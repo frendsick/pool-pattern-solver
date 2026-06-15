@@ -125,7 +125,7 @@ export function sceneForStep(
   }
   return {
     balls: layout.balls.slice(k - 1),
-    originZone: originWindowForStep(pattern, s, skill),
+    originZone: options.highlightOriginZone ? originWindowForStep(pattern, s, skill) : [],
     originZoneHighlighted: options.highlightOriginZone ?? false,
     zone,
     altZones,

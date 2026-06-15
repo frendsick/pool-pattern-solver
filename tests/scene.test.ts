@@ -39,21 +39,27 @@ describe('scene draws the Position Zone the route was scored against', () => {
     expect(overview.ghostPaths.length).toBeGreaterThan(0);
   });
 
-  it('draws the origin Position Window for cue-ball drag at shot steps', () => {
+  it('only exposes the origin Position Window while cue-ball drag is highlighted', () => {
     const firstShot = sceneForStep(layout, pattern, 2, INTERMEDIATE);
-    expect(firstShot.originZone).toEqual(originWindowForStep(pattern, 2, INTERMEDIATE));
-    expect(firstShot.originZone).toHaveLength(1);
-    expect(firstShot.originZone[0]).toHaveLength(4);
+    expect(firstShot.originZone).toEqual([]);
     expect(firstShot.cueDraggable).toBe(true);
     expect(firstShot.originZoneHighlighted).toBe(false);
-    expect(
-      sceneForStep(layout, pattern, 2, INTERMEDIATE, { highlightOriginZone: true })
-        .originZoneHighlighted,
-    ).toBe(true);
+
+    const firstDrag = sceneForStep(layout, pattern, 2, INTERMEDIATE, {
+      highlightOriginZone: true,
+    });
+    expect(firstDrag.originZoneHighlighted).toBe(true);
+    expect(firstDrag.originZone).toEqual(originWindowForStep(pattern, 2, INTERMEDIATE));
+    expect(firstDrag.originZone).toHaveLength(1);
+    expect(firstDrag.originZone[0]).toHaveLength(4);
 
     const secondShot = sceneForStep(layout, pattern, 3, INTERMEDIATE);
-    expect(secondShot.originZone.length).toBeGreaterThan(0);
-    expect(secondShot.originZone).toEqual(originWindowForStep(pattern, 3, INTERMEDIATE));
+    expect(secondShot.originZone).toEqual([]);
+    const secondDrag = sceneForStep(layout, pattern, 3, INTERMEDIATE, {
+      highlightOriginZone: true,
+    });
+    expect(secondDrag.originZone.length).toBeGreaterThan(0);
+    expect(secondDrag.originZone).toEqual(originWindowForStep(pattern, 3, INTERMEDIATE));
   });
 
   it('the planned landing clears the bar of the drawn primary window', () => {

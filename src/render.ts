@@ -145,12 +145,13 @@ export function renderScene(scene: Scene): string {
   const h = VIEW_H;
   let body = tableBase();
 
-  const originAttrs = scene.originZoneHighlighted
-    ? `fill="rgba(253,253,246,0.22)" stroke="rgba(253,253,246,0.85)" stroke-width="2.4" stroke-dasharray="6 4"`
-    : `fill="rgba(253,253,246,0.10)" stroke="rgba(253,253,246,0.45)" stroke-width="1.2" stroke-dasharray="5 6"`;
-  for (const oz of scene.originZone) {
-    if (oz.length >= 3) {
-      body += `<polygon points="${oz.map(pt).join(' ')}" ${originAttrs}/>`;
+  if (scene.originZoneHighlighted) {
+    const originAttrs =
+      `fill="rgba(253,253,246,0.22)" stroke="rgba(253,253,246,0.85)" stroke-width="2.4" stroke-dasharray="6 4"`;
+    for (const oz of scene.originZone) {
+      if (oz.length >= 3) {
+        body += `<polygon points="${oz.map(pt).join(' ')}" ${originAttrs}/>`;
+      }
     }
   }
 
