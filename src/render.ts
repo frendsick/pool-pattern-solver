@@ -5,8 +5,13 @@
 import { Vec } from './geometry';
 import { TABLE_W, TABLE_H, BALL_R, POCKETS, Ball } from './table';
 
-const S = 9; // px per inch
-const RAIL = 5; // rail width, inches
+export const SVG_SCALE = 9; // px per inch
+export const RAIL_INCHES = 5; // rail width, inches
+export const VIEW_W = (TABLE_W + 2 * RAIL_INCHES) * SVG_SCALE;
+export const VIEW_H = (TABLE_H + 2 * RAIL_INCHES) * SVG_SCALE;
+
+const S = SVG_SCALE;
+const RAIL = RAIL_INCHES;
 
 export interface SceneShot {
   cuePos: Vec;
@@ -19,6 +24,8 @@ export interface SceneShot {
 
 export interface Scene {
   balls: Ball[];
+  /** The previous shot's destination window; first shot uses the whole table. */
+  originZone: Vec[][];
   /** Position window polygons (a ball cutting clean across can split one). */
   zone: Vec[][];
   /** Zones via other open pockets: a fainter, second-choice expansion. */
@@ -27,11 +34,26 @@ export interface Scene {
   /** Faint preview paths (overview step). */
   ghostPaths: Vec[][];
   cue: Vec | null;
+  cueDraggable?: boolean;
 }
 
 const px = (v: number) => (v * S).toFixed(1);
 const X = (v: number) => px(v + RAIL);
 const Y = (v: number) => px(TABLE_H - v + RAIL); // flip y so +y is up
+
+export function tableToSvgPoint(p: Vec): Vec {
+  return {
+    x: (p.x + RAIL_INCHES) * SVG_SCALE,
+    y: (TABLE_H - p.y + RAIL_INCHES) * SVG_SCALE,
+  };
+}
+
+export function svgToTablePoint(p: Vec): Vec {
+  return {
+    x: p.x / SVG_SCALE - RAIL_INCHES,
+    y: TABLE_H + RAIL_INCHES - p.y / SVG_SCALE,
+  };
+}
 
 function pt(p: Vec): string {
   return `${X(p.x)},${Y(p.y)}`;
@@ -80,12 +102,13 @@ function drawBall(b: Ball, faded = false): string {
   );
 }
 
-function drawCueBall(p: Vec, dashed = false): string {
+function drawCueBall(p: Vec, dashed = false, draggable = false): string {
   const r = BALL_R * S;
   const stroke = dashed
     ? `stroke="#fdfdf6" stroke-width="1.4" stroke-dasharray="3 3" fill="rgba(253,253,246,0.25)"`
     : `stroke="#9a9a8e" stroke-width="0.9" fill="#fdfdf6"`;
-  return `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${r}" ${stroke}/>`;
+  const dragAttrs = draggable ? ` class="cue-ball-draggable" data-role="cue-ball"` : '';
+  return `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${r}"${dragAttrs} ${stroke}/>`;
 }
 
 function tableBase(): string {
@@ -117,9 +140,15 @@ function tableBase(): string {
 }
 
 export function renderScene(scene: Scene): string {
-  const w = (TABLE_W + 2 * RAIL) * S;
-  const h = (TABLE_H + 2 * RAIL) * S;
+  const w = VIEW_W;
+  const h = VIEW_H;
   let body = tableBase();
+
+  for (const oz of scene.originZone) {
+    if (oz.length >= 3) {
+      body += `<polygon points="${oz.map(pt).join(' ')}" fill="rgba(253,253,246,0.10)" stroke="rgba(253,253,246,0.45)" stroke-width="1.2" stroke-dasharray="5 6"/>`;
+    }
+  }
 
   for (const az of scene.altZones) {
     if (az.length >= 3) {
@@ -149,7 +178,7 @@ export function renderScene(scene: Scene): string {
   }
 
   for (const b of scene.balls) body += drawBall(b);
-  if (scene.cue) body += drawCueBall(scene.cue);
+  if (scene.cue) body += drawCueBall(scene.cue, false, scene.cueDraggable ?? false);
 
   return (
     `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +

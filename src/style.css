@@ -69,6 +69,10 @@ button.primary {
   color: #fff;
 }
 
+button.secondary {
+  background: #f6f2e8;
+}
+
 .ball-count {
   display: flex;
   align-items: center;
@@ -121,6 +125,15 @@ button.primary {
   display: block;
   border-radius: 14px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+  touch-action: none;
+}
+
+.cue-ball-draggable {
+  cursor: grab;
+}
+
+.table:active .cue-ball-draggable {
+  cursor: grabbing;
 }
 
 .caption {

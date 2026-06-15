@@ -392,6 +392,10 @@ function scanFan(
 // this cheap).
 const FAN_STEPS = 72;
 const FAN_DR = 0.75;
+// Morphological closing may bridge a shallow below-bar dip so a stripey but
+// effectively uniform fan draws as one window. Deeper weak dips are not
+// uniform enough for drag-clamping, so they break the drawn polygon.
+const BRIDGE_RELATIVE = 0.75;
 
 // Window wedges thinner than this many rays (~1.7°/ray) are dissolved by the
 // angular opening — a sliver that narrow is a mishit line, not a real leave.
@@ -461,7 +465,7 @@ function buildWindows(
       const p = add(z.ball, scale(dir, radius(j)));
       if (excludeRailBand && railExcluded(p, norm(sub(ghost, p)))) continue; // DEAD
       const v = zoneValue(p, z, skill);
-      row[j] = v <= 0 ? DEAD : v >= minValue ? CORE : FEAS;
+      row[j] = v < minValue * BRIDGE_RELATIVE ? DEAD : v >= minValue ? CORE : FEAS;
     }
     cls.push(row);
   }

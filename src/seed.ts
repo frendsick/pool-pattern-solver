@@ -154,7 +154,7 @@ export function initialNodes(
         score: v,
         sortKey: v,
         done: [],
-        pending: { ball: first, pocket, cuePos: c, g, potProb: v },
+        pending: { ball: first, pocket, cuePos: c, g, potProb: v, fromHand: true },
       };
     };
     const pocketNodes: Node[] = [];

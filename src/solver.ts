@@ -11,7 +11,7 @@ import {
   sub,
   dist,
 } from './geometry';
-import { Ball, Layout, Pocket } from './table';
+import { Ball, Layout, Pocket, POCKETS } from './table';
 import {
   ShotGeometry,
   ShotType,
@@ -94,6 +94,8 @@ interface PendingShot {
   cuePos: Vec;
   g: ShotGeometry;
   potProb: number;
+  /** The shot from this cue was placed exactly by hand/drag, not arrived at. */
+  fromHand: boolean;
 }
 
 /** Exported (with initialNodes/expandNodes) for the beam-step diagnostics. */
@@ -211,7 +213,7 @@ function expandPass(
         obstacles, c.zc, skill, c.node.pending.g.dCueGhost,
         { g: c.node.pending.g, pocket: c.node.pending.pocket },
         curve,
-        c.node.done.length === 0, // shot 1 is played from ball in hand
+        c.node.pending.fromHand,
       ) * c.ease * c.windowFactor;
     if (e <= 0.01) continue;
     const gNext = shotGeometry(c.landing, nextBall.pos, c.nextPocket);
@@ -256,6 +258,7 @@ function expandPass(
         cuePos: c.landing,
         g: gNext,
         potProb: potNext,
+        fromHand: false,
       },
     });
   }
@@ -274,14 +277,15 @@ function expandPass(
  */
 function resolveShotZones(
   shots: PlannedShot[],
+  balls: Ball[],
+  firstBallIndex: number,
   skill: SkillProfile,
   surfaces: (ValueSurface | null)[],
 ): void {
-  const balls = shots.map((s) => s.ball);
   for (let i = 0; i + 1 < shots.length; i++) {
     const shot = shots[i];
     const next = shots[i + 1];
-    const { obstacles, gate } = zoneInputsForBall(balls, i + 1, surfaces);
+    const { obstacles, gate } = zoneInputsForBall(balls, firstBallIndex + i + 1, surfaces);
     const zc = zoneContext(next.ball.pos, next.pocket, obstacles, [], gate);
     shot.zone = zc;
     if (!shot.path || shot.zoneLen === null) continue;
@@ -318,8 +322,11 @@ function resolveShotZones(
 
 function finalize(
   node: Node,
+  balls: Ball[],
+  firstBallIndex: number,
   skill: SkillProfile,
   surfaces: (ValueSurface | null)[],
+  explainFirstAsHand = true,
 ): Pattern {
   const p = node.pending;
   const last: PlannedShot = {
@@ -342,11 +349,100 @@ function finalize(
     explanation: '',
   };
   const shots = [...node.done, last];
-  resolveShotZones(shots, skill, surfaces);
+  resolveShotZones(shots, balls, firstBallIndex, skill, surfaces);
   for (let i = 0; i < shots.length; i++) {
-    shots[i].explanation = explainShot(shots[i], shots[i + 1] ?? null, i === 0, skill);
+    shots[i].explanation = explainShot(
+      shots[i],
+      shots[i + 1] ?? null,
+      i === 0 && explainFirstAsHand,
+      skill,
+    );
   }
   return { shots, score: node.score };
+}
+
+function fixedCueNodes(
+  layout: Layout,
+  startIndex: number,
+  cuePos: Vec,
+  surfaces: (ValueSurface | null)[],
+  skill: SkillProfile,
+  fromHand: boolean,
+): Node[] {
+  const ball = layout.balls[startIndex];
+  const { obstacles } = zoneInputsForBall(layout.balls, startIndex, surfaces);
+  const nodes: Node[] = [];
+  for (const pocket of POCKETS) {
+    const zc = zoneContext(ball.pos, pocket, obstacles);
+    if (!zc.ballPathClear) continue;
+    const potProb = zoneValue(cuePos, zc, skill);
+    if (potProb <= 0) continue;
+    const g = shotGeometry(cuePos, ball.pos, pocket);
+    if (!g) continue;
+    nodes.push({
+      score: potProb,
+      sortKey: potProb,
+      done: [],
+      pending: { ball, pocket, cuePos, g, potProb, fromHand },
+    });
+  }
+  sortChildren(nodes);
+  return nodes;
+}
+
+function expandToTargets(
+  nodes: Node[],
+  nextBall: Ball,
+  laterPos: Vec[],
+  targets: ZoneTarget[],
+  skill: SkillProfile,
+): Node[] {
+  for (const lenient of [false, true]) {
+    const children = expandPass(nodes, nextBall, laterPos, targets, skill, lenient);
+    if (children.length > 0 || lenient) return children;
+  }
+  return [];
+}
+
+export function solveFromCue(
+  layout: Layout,
+  skill: SkillProfile,
+  startIndex: number,
+  cuePos: Vec,
+  surfaces: (ValueSurface | null)[] = surfacesForLayout(layout, skill),
+): Pattern | null {
+  if (startIndex < 0 || startIndex >= layout.balls.length) return null;
+  let nodes = fixedCueNodes(layout, startIndex, cuePos, surfaces, skill, true);
+  if (nodes.length === 0) return null;
+  for (let k = startIndex + 1; k < layout.balls.length; k++) {
+    nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
+    if (nodes.length === 0) return null;
+  }
+  return finalize(nodes[0], layout.balls, startIndex, skill, surfaces, false);
+}
+
+export function previewLegFromCue(
+  layout: Layout,
+  skill: SkillProfile,
+  startIndex: number,
+  cuePos: Vec,
+  targetZone: ZoneContext,
+): PlannedShot | null {
+  if (startIndex < 0 || startIndex + 1 >= layout.balls.length) return null;
+  const surfaces = surfacesForLayout(layout, skill);
+  const nodes = fixedCueNodes(layout, startIndex, cuePos, surfaces, skill, true);
+  if (nodes.length === 0) return null;
+  const nextBall = layout.balls[startIndex + 1];
+  const target: ZoneTarget = {
+    pocket: targetZone.pocket,
+    zc: targetZone,
+    zcPot: zoneContext(targetZone.ball, targetZone.pocket, targetZone.obstacles),
+  };
+  const children = expandToTargets(nodes, nextBall, targetZone.obstacles, [target], skill);
+  const best = children[0]?.done[0] ?? null;
+  if (!best) return null;
+  best.zone = targetZone;
+  return best;
 }
 
 export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
@@ -364,5 +460,5 @@ export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
     nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
     if (nodes.length === 0) return null;
   }
-  return finalize(nodes[0], skill, surfaces);
+  return finalize(nodes[0], layout.balls, 0, skill, surfaces);
 }

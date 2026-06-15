@@ -11,7 +11,7 @@ import { vec } from '../src/geometry';
 import { Layout } from '../src/table';
 import { INTERMEDIATE } from '../src/skill';
 import { solve } from '../src/solver';
-import { sceneForStep } from '../src/scene';
+import { originWindowForStep, sceneForStep } from '../src/scene';
 import { zoneBar, zoneValue } from '../src/zone';
 
 // The "open three-ball layout" golden — solves confidently, every shot routed.
@@ -37,6 +37,18 @@ describe('scene draws the Position Zone the route was scored against', () => {
     const overview = sceneForStep(layout, pattern, 1, INTERMEDIATE);
     expect(overview.cue).not.toBeNull();
     expect(overview.ghostPaths.length).toBeGreaterThan(0);
+  });
+
+  it('draws the origin Position Window for cue-ball drag at shot steps', () => {
+    const firstShot = sceneForStep(layout, pattern, 2, INTERMEDIATE);
+    expect(firstShot.originZone).toEqual(originWindowForStep(pattern, 2, INTERMEDIATE));
+    expect(firstShot.originZone).toHaveLength(1);
+    expect(firstShot.originZone[0]).toHaveLength(4);
+    expect(firstShot.cueDraggable).toBe(true);
+
+    const secondShot = sceneForStep(layout, pattern, 3, INTERMEDIATE);
+    expect(secondShot.originZone.length).toBeGreaterThan(0);
+    expect(secondShot.originZone).toEqual(originWindowForStep(pattern, 3, INTERMEDIATE));
   });
 
   it('the planned landing clears the bar of the drawn primary window', () => {
