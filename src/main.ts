@@ -1,11 +1,19 @@
 import { INTERMEDIATE } from './skill';
-import { generatePuzzle, GeneratedPuzzle } from './generator';
+import { generatePuzzle } from './generator';
+import type { GeneratedPuzzle } from './generator';
 import { Vec, dist } from './geometry';
 import { BALL_R } from './table';
-import { Pattern, PlannedShot, previewLegFromCue, solveFromCue } from './solver';
+import { previewLegFromCue, solveFromCue } from './solver';
+import type { Pattern, PlannedShot } from './solver';
 import { originWindowForStep, sceneForStep } from './scene';
 import { renderScene, svgToTablePoint, VIEW_H, VIEW_W } from './render';
-import { clampCuePosition, pointInPolygons } from './interaction';
+import {
+  clampCuePosition,
+  legalCuePosition,
+  pointInPolygons,
+  wholeTablePolygon,
+} from './interaction';
+import { openingPatternFromCue } from './opening-validity';
 
 const MIN_BALLS = 2;
 const MAX_BALLS = 9;
@@ -23,6 +31,25 @@ const el = {
   restoreLine: document.getElementById('restoreLine') as HTMLButtonElement,
 };
 
+type OpeningPlacement = 'solver' | 'player';
+
+type OpeningDrag = {
+  kind: 'opening';
+  pointerId: number;
+  cue: Vec;
+  startCue: Vec;
+};
+
+type AlternativeDrag = {
+  kind: 'alternative';
+  pointerId: number;
+  cue: Vec;
+  preview: PlannedShot | null;
+  originZone: Vec[][];
+};
+
+type DragState = OpeningDrag | AlternativeDrag;
+
 function selectedBallCount(): number {
   const n = Number(el.ballCount.value);
   return Math.min(MAX_BALLS, Math.max(MIN_BALLS, Number.isFinite(n) ? n : DEFAULT_BALLS));
@@ -30,17 +57,16 @@ function selectedBallCount(): number {
 
 let puzzle: GeneratedPuzzle | null = null;
 let activePattern: Pattern | null = null;
-let step = 0; // 0 = overview, 1..N = shots
-let drag:
-  | {
-      pointerId: number;
-      cue: Vec;
-      preview: PlannedShot | null;
-      originZone: Vec[][];
-    }
-  | null = null;
+let activeOpeningPlacement: OpeningPlacement = 'solver';
+let step = 0; // 0 = first-look layout, 1 = overview, 2..N+1 = shots
+let drag: DragState | null = null;
+let statusCaption: string | null = null;
 
-function captionForStep(pattern: Pattern, s: number): string {
+function captionForStep(
+  pattern: Pattern,
+  s: number,
+  openingPlacement: OpeningPlacement,
+): string {
   if (s === 0) {
     return (
       `<strong>Ball in hand — your turn first.</strong> No cue ball yet: ` +
@@ -50,6 +76,13 @@ function captionForStep(pattern: Pattern, s: number): string {
   }
   if (s === 1) {
     const pct = Math.round(pattern.score * 100);
+    if (openingPlacement === 'player') {
+      return (
+        `<strong>Player-placed Ball in Hand.</strong> Best run-out from your cue-ball placement ` +
+        `(faint white paths). Estimated run-out probability: <strong>${pct}%</strong>. ` +
+        `Step through the shots with <em>Next</em>.`
+      );
+    }
     return (
       `<strong>Ball in hand.</strong> The solver placed the cue ball and planned the full run-out ` +
       `(faint white paths). Estimated run-out probability: <strong>${pct}%</strong>. ` +
@@ -68,39 +101,57 @@ function renderCurrent(): void {
     activePattern,
     step,
     INTERMEDIATE,
-    drag ? { cue: drag.cue, previewShot: drag.preview, highlightOriginZone: true } : {},
+    drag?.kind === 'alternative'
+      ? { cue: drag.cue, previewShot: drag.preview, highlightOriginZone: true }
+      : drag?.kind === 'opening'
+        ? { cue: drag.cue, suppressPattern: true }
+        : {},
   );
-  el.table.innerHTML = renderScene(
-    scene,
-  );
-  if (drag) {
+  el.table.innerHTML = renderScene(scene);
+  if (drag?.kind === 'alternative') {
     const reach = drag.preview?.eNext ?? null;
     el.caption.innerHTML =
       reach === null
         ? `<strong>Alternative leave.</strong> No route to the shown Position Window from this cue position.`
         : `<strong>Alternative leave.</strong> Best live route reaches the shown Position Window about <strong>${Math.round(reach * 100)}%</strong> of the time.`;
+  } else if (drag?.kind === 'opening') {
+    el.caption.innerHTML =
+      `<strong>Ball in hand.</strong> Release the cue ball to solve from this exact placement.`;
+  } else if (statusCaption) {
+    el.caption.innerHTML = statusCaption;
   } else {
-    el.caption.innerHTML = captionForStep(activePattern, step);
+    el.caption.innerHTML = captionForStep(activePattern, step, activeOpeningPlacement);
   }
   el.stepLabel.textContent =
     step === 0 ? 'Layout' : step === 1 ? 'Overview' : `Shot ${step - 1} of ${n}`;
-  const reach = drag?.preview?.eNext ?? null;
+  const reach = drag?.kind === 'alternative' ? drag.preview?.eNext ?? null : null;
   el.score.textContent =
     `Run-out ~${Math.round(activePattern.score * 100)}%` +
     (reach === null ? '' : ` · leg reach ~${Math.round(reach * 100)}%`);
   el.prev.disabled = step === 0;
   el.next.disabled = step === n + 1;
-  el.restoreLine.disabled = activePattern === puzzle.pattern;
+  el.restoreLine.disabled = !(drag?.kind === 'opening' || activePattern !== puzzle.pattern);
+}
+
+function clearStatus(): void {
+  statusCaption = null;
+}
+
+function showStatus(message: string): void {
+  statusCaption = message;
+  renderCurrent();
 }
 
 function newPuzzle(seed: number): void {
   const ballCount = selectedBallCount();
+  clearStatus();
   el.caption.textContent = 'Generating layout…';
   el.newLayout.disabled = true;
   window.location.hash = `s=${seed}&n=${ballCount}`;
   setTimeout(() => {
     puzzle = generatePuzzle(seed, ballCount, INTERMEDIATE);
     activePattern = puzzle?.pattern ?? null;
+    activeOpeningPlacement = 'solver';
     step = 0;
     drag = null;
     el.newLayout.disabled = false;
@@ -138,8 +189,12 @@ function previewForCue(index: number, cue: Vec): PlannedShot | null {
   return previewLegFromCue(puzzle.layout, INTERMEDIATE, index, cue, targetZone);
 }
 
-function clampedDragCue(index: number, p: Vec, originZone: Vec[][]): Vec {
+function clampedAlternativeCue(index: number, p: Vec, originZone: Vec[][]): Vec {
   return clampCuePosition(p, originZone, currentObjectBalls(index));
+}
+
+function clampedOpeningCue(p: Vec): Vec {
+  return puzzle ? clampCuePosition(p, [wholeTablePolygon()], puzzle.layout.balls) : p;
 }
 
 function continuationPrefix(index: number): number {
@@ -151,19 +206,62 @@ function continuationPrefix(index: number): number {
   return activePattern.score / base.score;
 }
 
-function finishDrag(): void {
-  if (!drag || !puzzle || !activePattern) return;
+function openingCueIsVisible(): boolean {
+  return step === 1 || step === 2;
+}
+
+function pointerHitsOpeningCue(p: Vec): boolean {
+  if (!activePattern || !openingCueIsVisible()) return false;
+  return dist(p, activePattern.shots[0].cuePos) <= BALL_R * 2.2;
+}
+
+function commitOpeningCue(cue: Vec, targetStep: number): boolean {
+  if (!puzzle) return false;
+  // When a cue ball is already placed (a drag), a rejected spot snaps it back
+  // to where the drag started; at step 0 there is no prior spot to return to.
+  const returned = step !== 0 ? ' — cue ball returned to its previous spot' : '';
+  if (!legalCuePosition(cue, puzzle.layout.balls)) {
+    showStatus(`<strong>Invalid placement.</strong> The cue ball overlaps another ball${returned}.`);
+    return false;
+  }
+  const pattern = openingPatternFromCue(puzzle.layout, INTERMEDIATE, cue);
+  if (!pattern) {
+    showStatus(`<strong>Invalid placement.</strong> No complete run-out from there${returned}.`);
+    return false;
+  }
+  activePattern = pattern;
+  activeOpeningPlacement = 'player';
+  step = Math.min(targetStep, activePattern.shots.length + 1);
+  clearStatus();
+  renderCurrent();
+  return true;
+}
+
+function finishOpeningDrag(d: OpeningDrag): void {
+  drag = null;
+  if (dist(d.cue, d.startCue) < 0.01) {
+    renderCurrent();
+    return;
+  }
+  commitOpeningCue(d.cue, step);
+}
+
+function finishAlternativeDrag(d: AlternativeDrag): void {
+  if (!puzzle || !activePattern) {
+    drag = null;
+    return;
+  }
   const index = currentShotIndex();
   if (index === null) {
     drag = null;
     renderCurrent();
     return;
   }
-  const cue = drag.cue;
+  const cue = d.cue;
   const prefix = continuationPrefix(index);
   const suffix = solveFromCue(puzzle.layout, INTERMEDIATE, index, cue);
   if (!suffix) {
-    if (pointInPolygons(cue, drag.originZone)) {
+    if (pointInPolygons(cue, d.originZone)) {
       console.warn('Position Window render-vs-scoring seam: in-window Alternative Leave produced no continuing route', {
         seed: puzzle.layout.seed,
         shot: index + 1,
@@ -179,20 +277,32 @@ function finishDrag(): void {
     score: Math.max(0, Math.min(1, prefix * suffix.score)),
   };
   drag = null;
+  clearStatus();
   renderCurrent();
 }
 
-el.table.addEventListener('pointerdown', (e) => {
-  if (!puzzle || !activePattern) return;
-  const index = currentShotIndex();
-  if (index === null) return;
-  const p = pointerToTable(e);
-  if (!p) return;
+function startOpeningDrag(e: PointerEvent): void {
+  if (!activePattern) return;
+  const cue = activePattern.shots[0].cuePos;
+  drag = {
+    kind: 'opening',
+    pointerId: e.pointerId,
+    cue,
+    startCue: cue,
+  };
+  el.table.setPointerCapture(e.pointerId);
+  e.preventDefault();
+  renderCurrent();
+}
+
+function startAlternativeDrag(e: PointerEvent, index: number, p: Vec): void {
+  if (!activePattern) return;
   const cue = activePattern.shots[index].cuePos;
   if (dist(p, cue) > BALL_R * 2.2) return;
   const originZone = originWindowForStep(activePattern, step, INTERMEDIATE);
-  const clamped = clampedDragCue(index, p, originZone);
+  const clamped = clampedAlternativeCue(index, p, originZone);
   drag = {
+    kind: 'alternative',
     pointerId: e.pointerId,
     cue: clamped,
     preview: previewForCue(index, clamped),
@@ -201,23 +311,51 @@ el.table.addEventListener('pointerdown', (e) => {
   el.table.setPointerCapture(e.pointerId);
   e.preventDefault();
   renderCurrent();
+}
+
+el.table.addEventListener('pointerdown', (e) => {
+  if (!puzzle || !activePattern || e.button !== 0) return;
+  const p = pointerToTable(e);
+  if (!p) return;
+  clearStatus();
+
+  if (step === 0) {
+    commitOpeningCue(p, 1);
+    e.preventDefault();
+    return;
+  }
+
+  if (pointerHitsOpeningCue(p)) {
+    startOpeningDrag(e);
+    return;
+  }
+
+  const index = currentShotIndex();
+  if (index === null) return;
+  startAlternativeDrag(e, index, p);
 });
 
 el.table.addEventListener('pointermove', (e) => {
-  if (!drag) return;
-  if (e.pointerId !== drag.pointerId) return;
-  const index = currentShotIndex();
+  if (!drag || e.pointerId !== drag.pointerId) return;
   const p = pointerToTable(e);
-  if (index === null || !p) return;
-  drag.cue = clampedDragCue(index, p, drag.originZone);
-  drag.preview = previewForCue(index, drag.cue);
+  if (!p) return;
+  if (drag.kind === 'opening') {
+    drag.cue = clampedOpeningCue(p);
+  } else {
+    const index = currentShotIndex();
+    if (index === null) return;
+    drag.cue = clampedAlternativeCue(index, p, drag.originZone);
+    drag.preview = previewForCue(index, drag.cue);
+  }
   renderCurrent();
 });
 
 el.table.addEventListener('pointerup', (e) => {
   if (!drag || e.pointerId !== drag.pointerId) return;
   el.table.releasePointerCapture(e.pointerId);
-  finishDrag();
+  const finished = drag;
+  if (finished.kind === 'opening') finishOpeningDrag(finished);
+  else finishAlternativeDrag(finished);
 });
 
 el.table.addEventListener('pointercancel', (e) => {
@@ -233,15 +371,25 @@ el.ballCount.addEventListener('change', () => {
   newPuzzle(Math.floor(Math.random() * 1e9));
 });
 el.prev.addEventListener('click', () => {
-  if (step > 0) { step--; renderCurrent(); }
+  if (step > 0) {
+    clearStatus();
+    step--;
+    renderCurrent();
+  }
 });
 el.next.addEventListener('click', () => {
-  if (activePattern && step < activePattern.shots.length + 1) { step++; renderCurrent(); }
+  if (activePattern && step < activePattern.shots.length + 1) {
+    clearStatus();
+    step++;
+    renderCurrent();
+  }
 });
 el.restoreLine.addEventListener('click', () => {
   if (!puzzle) return;
   activePattern = puzzle.pattern;
+  activeOpeningPlacement = 'solver';
   drag = null;
+  clearStatus();
   if (step > activePattern.shots.length + 1) step = activePattern.shots.length + 1;
   renderCurrent();
 });

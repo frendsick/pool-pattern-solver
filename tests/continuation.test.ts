@@ -18,6 +18,15 @@ describe('fixed-cue continuation solver', () => {
   const pattern = solve(layout, INTERMEDIATE);
   if (!pattern) throw new Error('fixture failed to solve');
 
+  it('solves a full Pattern from an exact opening Ball in Hand cue', () => {
+    const fixed = solveFromCue(layout, INTERMEDIATE, 0, pattern.shots[0].cuePos);
+
+    expect(fixed).not.toBeNull();
+    expect(fixed!.shots.map((s) => s.ball.num)).toEqual([7, 8, 9]);
+    expect(fixed!.score).toBeGreaterThan(0);
+    expect(fixed!.shots[0].explanation).toMatch(/^Ball in hand:/);
+  });
+
   it('re-solves a suffix from an exact mid-rack cue', () => {
     const startIndex = 1;
     const suffix = solveFromCue(layout, INTERMEDIATE, startIndex, pattern.shots[startIndex].cuePos);

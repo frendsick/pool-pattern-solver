@@ -36,7 +36,26 @@ describe('scene draws the Position Zone the route was scored against', () => {
     }
     const overview = sceneForStep(layout, pattern, 1, INTERMEDIATE);
     expect(overview.cue).not.toBeNull();
+    expect(overview.cueDraggable).toBe(true);
     expect(overview.ghostPaths.length).toBeGreaterThan(0);
+  });
+
+  it('suppresses stale opening paths while the cue ball is dragged in Ball in Hand', () => {
+    const cue = vec(20, 20);
+    const overviewDrag = sceneForStep(layout, pattern, 1, INTERMEDIATE, {
+      cue,
+      suppressPattern: true,
+    });
+
+    expect(overviewDrag.cue).toEqual(cue);
+    expect(overviewDrag.ghostPaths).toEqual([]);
+
+    const firstShotDrag = sceneForStep(layout, pattern, 2, INTERMEDIATE, {
+      cue,
+      suppressPattern: true,
+    });
+    expect(firstShotDrag.shot).toBeNull();
+    expect(firstShotDrag.zone).toEqual([]);
   });
 
   it('only exposes the origin Position Window while cue-ball drag is highlighted', () => {

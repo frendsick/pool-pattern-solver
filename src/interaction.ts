@@ -1,5 +1,5 @@
 import { Vec, add, clamp, dist, distPointSegment, scale, sub } from './geometry';
-import { Ball, BALL_R, MAX_X, MAX_Y, MIN_X, MIN_Y } from './table';
+import { Ball, BALL_R, MAX_X, MAX_Y, MIN_X, MIN_Y, onTable } from './table';
 
 const EPS = 0.01;
 
@@ -78,6 +78,12 @@ export function clampCuePosition(p: Vec, polygons: Vec[][], balls: Ball[]): Vec 
     if (!moved) break;
   }
   return q;
+}
+
+export function legalCuePosition(p: Vec, balls: Ball[]): boolean {
+  if (!onTable(p)) return false;
+  const minDist = 2 * BALL_R + EPS;
+  return balls.every((b) => dist(p, b.pos) >= minDist - 1e-9);
 }
 
 export function pointInPolygons(p: Vec, polygons: Vec[][]): boolean {

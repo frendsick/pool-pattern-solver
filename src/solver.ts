@@ -418,7 +418,7 @@ export function solveFromCue(
     nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
     if (nodes.length === 0) return null;
   }
-  return finalize(nodes[0], layout.balls, startIndex, skill, surfaces, false);
+  return finalize(nodes[0], layout.balls, startIndex, skill, surfaces, startIndex === 0);
 }
 
 export function previewLegFromCue(

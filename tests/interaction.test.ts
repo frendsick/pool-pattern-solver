@@ -1,12 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { dist, vec } from '../src/geometry';
-import { BALL_R, MAX_X, MAX_Y, MIN_X, MIN_Y } from '../src/table';
-import { svgToTablePoint, tableToSvgPoint } from '../src/render';
 import {
   clampCuePosition,
+  legalCuePosition,
   pointInPolygon,
   wholeTablePolygon,
 } from '../src/interaction';
+import { svgToTablePoint, tableToSvgPoint } from '../src/render';
+import { BALL_R, Ball, MAX_X, MAX_Y, MIN_X, MIN_Y } from '../src/table';
 
 describe('cue-ball drag geometry', () => {
   it('round-trips table inches through the SVG coordinate transform', () => {
@@ -46,5 +47,23 @@ describe('cue-ball drag geometry', () => {
     expect(p.x).toBeLessThanOrEqual(MAX_X);
     expect(p.y).toBeGreaterThanOrEqual(MIN_Y);
     expect(p.y).toBeLessThanOrEqual(MAX_Y);
+  });
+});
+
+describe('cue placement legality', () => {
+  const balls: Ball[] = [{ num: 7, pos: vec(25, 25) }];
+
+  it('accepts only table-bounded cue centers clear of object balls', () => {
+    expect(legalCuePosition(vec(MIN_X, MIN_Y), balls)).toBe(true);
+    expect(legalCuePosition(vec(MIN_X - 0.1, MIN_Y), balls)).toBe(false);
+    expect(legalCuePosition(vec(25 + 2 * BALL_R, 25), balls)).toBe(false);
+    expect(legalCuePosition(vec(25 + 2 * BALL_R + 0.1, 25), balls)).toBe(true);
+  });
+
+  it('clamps opening drags to legal cue-center space', () => {
+    const clamped = clampCuePosition(vec(25, 25), [wholeTablePolygon()], balls);
+
+    expect(legalCuePosition(clamped, balls)).toBe(true);
+    expect(dist(clamped, balls[0].pos)).toBeGreaterThanOrEqual(2 * BALL_R);
   });
 });
