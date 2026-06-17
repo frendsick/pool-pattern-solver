@@ -7,6 +7,9 @@ import { previewLegFromCue, solveFromCue } from './solver';
 import type { Pattern, PlannedShot } from './solver';
 import { originWindowForStep, sceneForStep } from './scene';
 import { renderScene, svgToTablePoint, VIEW_H, VIEW_W } from './render';
+import type { Scene } from './render';
+import { buildPlayback } from './playback';
+import type { ShotPlayback } from './playback';
 import {
   clampCuePosition,
   legalCuePosition,
@@ -28,6 +31,7 @@ const el = {
   ballCount: document.getElementById('ballCount') as HTMLSelectElement,
   prev: document.getElementById('prev') as HTMLButtonElement,
   next: document.getElementById('next') as HTMLButtonElement,
+  play: document.getElementById('play') as HTMLButtonElement,
   restoreLine: document.getElementById('restoreLine') as HTMLButtonElement,
 };
 
@@ -61,6 +65,11 @@ let activeOpeningPlacement: OpeningPlacement = 'solver';
 let step = 0; // 0 = first-look layout, 1 = overview, 2..N+1 = shots
 let drag: DragState | null = null;
 let statusCaption: string | null = null;
+
+// Per-shot real-time playback (issue #19): a rAF loop walks playback.ts and
+// rebuilds a bare Scene per frame. Null whenever the diagram is at rest.
+type PlayState = { index: number; pb: ShotPlayback; start: number; raf: number };
+let playState: PlayState | null = null;
 
 function captionForStep(
   pattern: Pattern,
@@ -128,9 +137,24 @@ function renderCurrent(): void {
   el.score.textContent =
     `Run-out ~${Math.round(activePattern.score * 100)}%` +
     (reach === null ? '' : ` · leg reach ~${Math.round(reach * 100)}%`);
-  el.prev.disabled = step === 0;
-  el.next.disabled = step === n + 1;
-  el.restoreLine.disabled = !(drag?.kind === 'opening' || activePattern !== puzzle.pattern);
+  updateControls();
+}
+
+// Button enabled-state, factored out so stopPlayback can restore it without
+// re-rendering (which would repaint planning overlays over the frozen leave).
+function updateControls(): void {
+  if (!puzzle || !activePattern) return;
+  const n = activePattern.shots.length;
+  const playing = playState !== null;
+  el.prev.disabled = playing || step === 0;
+  el.next.disabled = playing || step === n + 1;
+  // Play is present always but inert off shot steps (layout/overview) and
+  // while a shot is already playing.
+  el.play.disabled = playing || currentShotIndex() === null;
+  el.newLayout.disabled = playing;
+  el.ballCount.disabled = playing;
+  el.restoreLine.disabled =
+    playing || !(drag?.kind === 'opening' || activePattern !== puzzle.pattern);
 }
 
 function clearStatus(): void {
@@ -144,6 +168,7 @@ function showStatus(message: string): void {
 
 function newPuzzle(seed: number): void {
   const ballCount = selectedBallCount();
+  stopPlayback();
   clearStatus();
   el.caption.textContent = 'Generating layout…';
   el.newLayout.disabled = true;
@@ -166,6 +191,82 @@ function newPuzzle(seed: number): void {
 function currentShotIndex(): number | null {
   if (!activePattern || step < 2 || step > activePattern.shots.length + 1) return null;
   return step - 2;
+}
+
+// A bare Scene for one playback frame: balls at their animated positions, cue
+// at its animated position, and every planning overlay (window, arrows, ghost,
+// landing marker, faint paths) suppressed. Builds the Scene here rather than in
+// scene.ts so scene.ts/render.ts stay free of any animation concept and the
+// snapshot tool is unaffected.
+function playbackScene(index: number, cue: Vec, object: Vec | null): Scene {
+  if (!puzzle) throw new Error('playbackScene without a puzzle');
+  // layout.balls.slice(index): the ball being shot first, then the rest.
+  const remaining = puzzle.layout.balls.slice(index);
+  const shotBall = remaining[0];
+  const rest = remaining.slice(1);
+  const balls = object ? [{ ...shotBall, pos: object }, ...rest] : rest;
+  return {
+    balls,
+    originZone: [],
+    zone: [],
+    altZones: [],
+    shot: null,
+    ghostPaths: [],
+    cue,
+    cueDraggable: false,
+  };
+}
+
+function playbackFrame(ts: number): void {
+  if (!playState) return;
+  if (playState.start < 0) playState.start = ts;
+  const t = (ts - playState.start) / 1000;
+  const st = playState.pb.at(t);
+  el.table.innerHTML = renderScene(playbackScene(playState.index, st.cue, st.object));
+  if (st.done) {
+    finishPlayback(); // advance to the next shot, or freeze on the final leave
+    return;
+  }
+  playState.raf = requestAnimationFrame(playbackFrame);
+}
+
+// A shot's video has played out. Advance to the next shot's static planning
+// diagram and wait for another Play; the final shot has no next shot, so it
+// stays frozen on the leave just rendered.
+function finishPlayback(): void {
+  if (!playState || !activePattern) return;
+  cancelAnimationFrame(playState.raf);
+  const index = playState.index;
+  playState = null;
+  const isLastShot = index >= activePattern.shots.length - 1;
+  if (isLastShot) {
+    updateControls(); // freeze on the leave; nothing to advance to
+  } else {
+    step += 1; // step i+2 -> i+3, the next shot
+    renderCurrent(); // restores the planning overlays for the next shot
+  }
+}
+
+function startPlayback(): void {
+  if (playState || !activePattern) return;
+  const index = currentShotIndex();
+  if (index === null) return;
+  clearStatus();
+  playState = {
+    index,
+    pb: buildPlayback(activePattern.shots[index]),
+    start: -1,
+    raf: 0,
+  };
+  updateControls();
+  playState.raf = requestAnimationFrame(playbackFrame);
+}
+
+function stopPlayback(): void {
+  if (!playState) return;
+  cancelAnimationFrame(playState.raf);
+  playState = null;
+  updateControls();
 }
 
 function pointerToTable(e: PointerEvent): Vec | null {
@@ -314,6 +415,7 @@ function startAlternativeDrag(e: PointerEvent, index: number, p: Vec): void {
 }
 
 el.table.addEventListener('pointerdown', (e) => {
+  if (playState) return;
   if (!puzzle || !activePattern || e.button !== 0) return;
   const p = pointerToTable(e);
   if (!p) return;
@@ -383,6 +485,9 @@ el.next.addEventListener('click', () => {
     step++;
     renderCurrent();
   }
+});
+el.play.addEventListener('click', () => {
+  startPlayback();
 });
 el.restoreLine.addEventListener('click', () => {
   if (!puzzle) return;

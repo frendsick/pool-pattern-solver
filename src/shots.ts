@@ -94,7 +94,7 @@ export function departureDir(g: ShotGeometry, type: ShotType): Vec | null {
  * to distance quadratically under constant friction, so the cue ball keeps
  * at least the matching share — you cannot "hit it really slowly" and pot.
  */
-const POCKET_PACE = 1.25;
+export const POCKET_PACE = 1.25;
 
 /**
  * Roll/draw share MAGNITUDE of the cue ball's post-contact speed along the aim

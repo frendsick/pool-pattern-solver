@@ -34,7 +34,8 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
 | `interaction.ts` | 102 | Hit-testing & clamping for drag: point-in-polygon, legal cue position, `wholeTablePolygon`. | `geometry`, `table` |
 | `scene.ts` | 162 | Builds a `Scene` (one Pattern step) for the renderer: gathers window polygons, paths, ghosts. Shared by app and snapshot tool. | `geometry`, `table`, `skill`, `solver`, `zone`, `render`, `interaction` |
 | `render.ts` | 199 | Pure SVG renderer + `svgToTablePoint` inverse mapping. No DOM events. | `geometry`, `table` |
-| `main.ts` | 407 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), calls scene/render. | `skill`, `generator`, `geometry`, `table`, `solver`, `scene`, `render`, `interaction`, `opening-validity` |
+| `playback.ts` | 165 | Kinematic shot replay (ADR-0006): maps animation time `t` to ball positions along the solver's already-traced geometry under one rolling-friction constant. Pure, no DOM/time. | `geometry`, `shots`, `solver`(types) |
+| `main.ts` | 407 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), the per-shot `requestAnimationFrame` playback loop, calls scene/render. | `skill`, `generator`, `geometry`, `table`, `solver`, `scene`, `render`, `playback`, `interaction`, `opening-validity` |
 
 ### Dependency layering
 
@@ -60,9 +61,14 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
    generator        opening-validity
    (build layout)   (player cue placement)
                          │
-        ┌────────────────┼─────────────────┐
-     scene ── render   interaction       main  (browser app: events, lifecycle)
+        ┌──────────┬─────┴────┬───────────┐
+     scene ──    playback   interaction   main  (browser app: events, lifecycle)
+       render
 ```
+
+`playback.ts` is a sibling consumption module: like `scene`/`render` it reads a
+solved Pattern, but it produces ball *positions over time* rather than a static
+Scene. `main.ts` feeds those positions back through `render.ts` each frame.
 
 Arrows point from a module to the ones it depends on (read top→down = "is built on").
 `solver.ts` is the hub: the lower half (geometry…route) is the scoring engine,
@@ -200,6 +206,18 @@ main.ts (DOM ready)
         └─► renderScene(scene) ─► SVG string        [render.ts]
 
    Navigation:  prev / next step buttons walk the Pattern's shots.
+
+   Playback (opt-in, shot steps only):              [playback.ts + main.ts]
+     • Play ─► buildPlayback(shot) ─► ShotPlayback {duration, at(t)}
+     • requestAnimationFrame loop: per frame ask at(t) for ball positions,
+       build a BARE Scene (overlays suppressed) at those positions, renderScene.
+     • Kinematic replay over the traced geometry (ADR-0006): cue approach
+       cuePos→ghost, then concurrent object-ball-to-pocket + cue carom along
+       `path` to `landing`, under one friction-decel constant. Plays once, then
+       auto-advances one step to the next shot's static diagram (overlays
+       restored); the final shot stays frozen on its leave. render.ts/scene.ts
+       are untouched (the bare Scene is assembled in main.ts), so the snapshot
+       tool is unaffected.
 
    Interaction (drag):                              [interaction.ts + main.ts]
      • Opening cue drag  ─► openingPatternFromCue()  [opening-validity.ts]
