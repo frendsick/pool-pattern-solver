@@ -9,3 +9,6 @@ and source ownership, not duplicate current numeric defaults.
 
 Use [CONTEXT.md](./CONTEXT.md) for domain language and [docs/adr/](./docs/adr/)
 for preserved design decisions.
+
+See [architecture.md](./architecture.md) for how the modules fit together
+(the module map, layering, and data flow).
