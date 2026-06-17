@@ -77,6 +77,13 @@ export const POCKETS: Pocket[] = [
 export const pocketById = (id: PocketId): Pocket =>
   POCKETS.find((p) => p.id === id)!;
 
+/**
+ * Foot spot: long-axis centerline, a quarter of the table length off a short
+ * rail. The 9 racks here and, on most breaks, rests on or near it. By symmetry
+ * either short rail is equivalent; we pick the right-hand one.
+ */
+export const FOOT_SPOT = vec((TABLE_W * 3) / 4, TABLE_H / 2);
+
 /** Ball-center bounds: the cue/object ball center must stay inside these. */
 export const MIN_X = BALL_R;
 export const MAX_X = TABLE_W - BALL_R;
