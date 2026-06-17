@@ -25,7 +25,7 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
 | `skill.ts` | 487 | Skill Profile (ADR-0002): every probability — P(pot) vs cut/distance, max cut, landing-spread sigmas, type reliability. `INTERMEDIATE` is the shipped profile. | `geometry`, `table`, `shots` |
 | `zone.ts` | 631 | Position Window: the `zoneValue` scoring field + `zonePolygons` render approximation. `zoneContext`, `zonePeak`, `zoneBar`, rail-band/proximity logic. | `geometry`, `table`, `shots`, `skill` |
 | `value.ts` | 166 | Backward value surfaces (ADR-0004): `V_k` rasters built from the 9 down, the shared onward-control gate (`gateFor`, `surfacesForLayout`, `zoneInputsForBall`). | `geometry`, `table`, `skill`, `zone` |
-| `route.ts` | 701 | Route exploration & scoring: `zoneTargets`, `routeCandidates` (fast prune), `expectedNextPot` (landing-spread quadrature), `pocketRisk`, `clearanceRisk`. | `geometry`, `table`, `shots`, `skill`, `zone`, `value` |
+| `route.ts` | 701 | Route exploration & scoring: `zoneTargets`, `routeCandidates` (fast prune), `expectedNextPot` (landing-spread quadrature), `pocketRisk`, `clearanceRisk`, `finalSafetyRoute` (the final ball's no-scratch pot). | `geometry`, `table`, `shots`, `skill`, `zone`, `value` |
 | `seed.ts` | 187 | Ball-in-hand seeds: angle×distance grid per pocket + shotline-aligned `alignedCuts`. Produces the beam search's `initialNodes`. | `geometry`, `table`, `shots`, `skill`, `zone`, `value`, `route`, `solver`(types) |
 | `solver.ts` | 464 | Beam search over Patterns. `solve`, `solveFromCue`, `previewLegFromCue`, `expandNodes`, `finalize`. The orchestrator. | `geometry`, `table`, `shots`, `skill`, `zone`, `value`, `route`, `seed`, `explain` |
 | `explain.ts` | 65 | Turns a `PlannedShot` into one human-readable sentence. | `geometry`, `shots`, `skill`, `solver`(types) |
@@ -134,6 +134,10 @@ scoring each leg against those backward surfaces.
  │
  │ ── 4. FINALIZE ────────────────────────────────────────────  [solver.ts]
  │    nodes[0] is the winner. Append the last shot (no onward window).
+ │    finalSafetyRoute: the final ball has no next window, so its Route   [route.ts]
+ │       is the open pocket x shot type maximizing P(pot) x P(no scratch)
+ │       at minimal natural travel — scratch priced by pocketRisk, folded
+ │       into Pattern.score (an all-scratch 9 collapses the leg).
  │    resolveShotZones: re-derive each shot's Position Window from the
  │       shared backward surfaces so renderer + explanation use the SAME
  │       zone the route was scored against; remeasure zoneLen/entryDeg.

@@ -31,6 +31,7 @@ import type { RouteLanding, ZoneTarget } from './route';
 import {
   clearanceRisk,
   expectedNextPot,
+  finalSafetyRoute,
   lineAngleDeg,
   pocketRisk,
   routeCandidates,
@@ -329,25 +330,50 @@ function finalize(
   explainFirstAsHand = true,
 ): Pattern {
   const p = node.pending;
+  // The final ball has no next Position Window, so it gets a SAFETY Route: the
+  // pocket x shot type maximizing P(pot) x P(no scratch) at minimal natural
+  // travel (route.ts). Its scratch risk — an automatic loss, unaccounted for
+  // while the 9 was a null pot-only shot — folds into the reported run-out
+  // probability here, the same pocketRisk pricing every mid-rack route carries.
+  const safe = finalSafetyRoute(p.cuePos, p.ball.pos, skill);
+  // The last shot never has an onward window (eNext/windowRef/zoneLen/entryDeg/
+  // zone stay null). When a safety route exists it supplies the pocket and route
+  // geometry; otherwise — no pocket pottable from the arrival position — fall
+  // back to the pot-only shot the beam routed for rather than inventing a route.
   const last: PlannedShot = {
     ball: p.ball,
-    pocket: p.pocket,
     cuePos: p.cuePos,
-    ghost: p.g.ghost,
-    cutDeg: (p.g.cut * 180) / Math.PI,
-    potProb: p.potProb,
-    type: null,
-    path: null,
-    landing: null,
-    rails: 0,
-    travel: 0,
     eNext: null,
     windowRef: null,
     zoneLen: null,
     entryDeg: null,
     zone: null,
     explanation: '',
+    ...(safe
+      ? {
+          pocket: safe.pocket,
+          ghost: safe.g.ghost,
+          cutDeg: (safe.g.cut * 180) / Math.PI,
+          potProb: safe.potProb,
+          type: safe.type,
+          path: safe.path,
+          landing: safe.landing,
+          rails: safe.rails,
+          travel: safe.travel,
+        }
+      : {
+          pocket: p.pocket,
+          ghost: p.g.ghost,
+          cutDeg: (p.g.cut * 180) / Math.PI,
+          potProb: p.potProb,
+          type: null,
+          path: null,
+          landing: null,
+          rails: 0,
+          travel: 0,
+        }),
   };
+  const score = safe ? node.score * safe.noScratch : node.score;
   const shots = [...node.done, last];
   resolveShotZones(shots, balls, firstBallIndex, skill, surfaces);
   for (let i = 0; i < shots.length; i++) {
@@ -358,7 +384,7 @@ function finalize(
       skill,
     );
   }
-  return { shots, score: node.score };
+  return { shots, score };
 }
 
 function fixedCueNodes(

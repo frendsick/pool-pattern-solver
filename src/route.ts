@@ -19,6 +19,8 @@ import {
   ShotGeometry,
   ShotType,
   departureDir,
+  minCueTravel,
+  shotGeometry,
   tracePath,
   CaromCurve,
   caromCurve,
@@ -29,6 +31,7 @@ import {
   distanceSigma,
   directionSigma,
   perturbSamples,
+  potProbability,
   routeEase,
   walkExit,
 } from './skill';
@@ -75,6 +78,13 @@ const LANDING_RAIL_INSET = RAIL_MARGIN + 1;
  */
 const SCRATCH_MARGIN = 4;
 const SCRATCH_FLOOR = 0.35;
+
+/**
+ * Cut below which the stop shot is offered: above it the cue cannot be killed
+ * in place (the stop degenerates to a stun). Shared by routeCandidates and
+ * finalSafetyRoute so mid-rack and final-ball stop eligibility stay aligned.
+ */
+const STOP_MAX_CUT = (9 * Math.PI) / 180;
 
 /** Per-pocket zone target for one solver layer: shared by every node. */
 export interface ZoneTarget {
@@ -528,6 +538,92 @@ export function pocketRisk(path: Vec[]): number {
   return worst;
 }
 
+/** The final ball's safety Route: a pocket, shot type, and traced cue path. */
+export interface FinalRoute {
+  pocket: Pocket;
+  g: ShotGeometry;
+  type: ShotType;
+  potProb: number;
+  /** P(no scratch) priced by pocketRisk over the traced cue path. */
+  noScratch: number;
+  path: Vec[];
+  landing: Vec;
+  travel: number;
+  rails: number;
+}
+
+/**
+ * Shot types tried for the final ball, easiest first — so a tie in
+ * P(pot) x P(no scratch) resolves toward the simpler stroke. The stop shot is
+ * only offered when the cut is near-straight (it degenerates to a stun
+ * otherwise); see routeCandidates' `stoppable` gate.
+ */
+const FINAL_TYPE_ORDER: ShotType[] = ['stop', 'follow', 'stun', 'lowTouch', 'draw'];
+
+/**
+ * Choose the final ball's Route. The 9 has no next Position Window to reach, so
+ * its Route is chosen for SAFETY: from the fixed arrival cue position, enumerate
+ * every open pocket x shot type at minimal natural travel (a soft, position-free
+ * stroke — pot it and don't sell out), trace the cue path, and pick the route
+ * maximizing P(pot) x P(no scratch), tie-breaking toward the easiest shot type.
+ *
+ * Scratch is priced through the SAME pocketRisk machinery as mid-rack scratch
+ * (probabilistic, not a hard binary reject): a route whose trace runs straight
+ * into a pocket is floored at SCRATCH_FLOOR rather than discarded, so a 9 whose
+ * every pocket only scratches collapses this leg on score — and generation
+ * rejects that layout the same way it rejects one with no complete Pattern.
+ *
+ * No object balls remain when the 9 is shot, so the trace sees only cushions
+ * and pocket mouths (obstacles = []). Returns null only if no pocket is
+ * pottable at all from the arrival position.
+ */
+export function finalSafetyRoute(
+  cue: Vec,
+  ballPos: Vec,
+  skill: SkillProfile,
+): FinalRoute | null {
+  let best: FinalRoute | null = null;
+  let bestScore = -1;
+  let bestRank = Infinity;
+  for (const pocket of POCKETS) {
+    const g = shotGeometry(cue, ballPos, pocket);
+    if (!g) continue;
+    const potProb = potProbability(g, pocket, skill);
+    if (potProb <= 0) continue;
+    const stoppable = g.cut < STOP_MAX_CUT;
+    for (let rank = 0; rank < FINAL_TYPE_ORDER.length; rank++) {
+      const type = FINAL_TYPE_ORDER[rank];
+      let dir: Vec;
+      let travel: number;
+      if (type === 'stop') {
+        if (!stoppable) continue;
+        // The cue stays put; a short stub down the aim line prices the
+        // follow-in scratch (an under-killed stop creeps toward the pocket).
+        dir = g.aim;
+        travel = 0.5;
+      } else {
+        const d = departureDir(g, type);
+        if (!d) continue;
+        dir = d;
+        travel = Math.max(minCueTravel(g, type), WALK_STEP);
+      }
+      const curve = caromCurve(g, type, travel) ?? undefined;
+      const tr = tracePath(g.ghost, dir, travel, [], 4, curve);
+      const noScratch = tr.outcome === 'scratch' ? SCRATCH_FLOOR : pocketRisk(tr.points);
+      const score = potProb * noScratch;
+      if (score > bestScore + 1e-9 || (score > bestScore - 1e-9 && rank < bestRank)) {
+        best = {
+          pocket, g, type, potProb, noScratch,
+          path: tr.points, landing: tr.end, travel, rails: tr.rails,
+        };
+        bestScore = score;
+        bestRank = rank;
+      }
+    }
+  }
+  return best;
+}
+
 /**
  * Expected pot probability of the next shot over the landing distribution of
  * this route — the Position Zone factor of the score.
@@ -578,7 +674,7 @@ export function routeCandidates(
   lenient: boolean,
 ): RouteLanding[] {
   const out: RouteLanding[] = [];
-  const stoppable = g.cut < (9 * Math.PI) / 180;
+  const stoppable = g.cut < STOP_MAX_CUT;
 
   interface Sampled {
     t: ZoneTarget;
