@@ -403,6 +403,36 @@ but they affect how users reach and inspect solver decisions:
   value.ts.
 - [src/render.ts](../src/render.ts): SVG scale, rail width, colors, markers,
   and ball drawing.
+- [src/playback.ts](../src/playback.ts): optional per-shot real-time playback
+  (ADR-0006). `buildPlayback(shot)` returns a `ShotPlayback {duration, at(t)}`
+  that maps animation time to ball positions ALONG the geometry the solver
+  already traced — never a separate physics sim. Two phases: the cue approach
+  (`cuePos → ghost`), then the concurrent object-ball-to-pocket roll and the cue
+  carom along the shot's `path` to `landing`. Motion is one rolling-friction
+  deceleration constant `DECEL`; each phase's start speed comes from an existing
+  solver quantity — `hitDistance` (approach hit power, floored by `HIT_FLOOR`)
+  and `travel` (cue carom). The object ball's launch speed follows the **90°
+  rule** (`vContact·cos(cut)`, Alciatore): at impact it takes the impact-line
+  share of the cue's speed, so a fuller hit sends it off faster — this is what
+  keeps a near-straight follow from letting the caroming cue overtake the ball
+  it just potted (it is floored at the pocket-reaching pace, `POCKET_PACE` carry
+  past the lip, so a thin soft cut never stalls short). So durations emerge from
+  distance and hit power. Two motion invariants live in `playback.ts`: `covered`
+  freezes the kinematic parabola at the rest-instant `v0/DECEL` (past it the
+  parabola turns down and would walk a stopped ball backward — the cause of an
+  earlier "cue drifts back" artifact); and the cue rests on `landing` (the next
+  shot's cue position) with the carom walk clamped to the path point nearest it
+  (`nearestArc`), so a stop shot whose traced path overshoots its landing by
+  `minCueTravel` stays put instead of creeping forward then snapping back.
+  `DECEL` is a render-side timing fake tuned by feel, not a
+  solver-known velocity, and it never moves a ball off the traced path. The
+  module is pure (no DOM, no `requestAnimationFrame`): [src/main.ts](../src/main.ts)
+  owns the rAF loop, rebuilds a bare Scene (planning overlays suppressed) at each
+  frame's positions, and plays once. On completion it auto-advances one step to
+  the next shot's static planning diagram (overlays restored) and waits for
+  another Play; the final shot has no next shot, so it stays frozen on the leave.
+  Because the bare Scene is assembled in `main.ts`, `scene.ts`/`render.ts` stay
+  pure and the snapshot tool is unaffected.
 - [src/explain.ts](../src/explain.ts): text thresholds and phrasing for shot
   explanations.
 
