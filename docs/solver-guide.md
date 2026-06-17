@@ -294,6 +294,16 @@ and position expectation:
 - `expectedNextPot`: landing-spread quadrature used for final position value.
 - `pocketRisk`: deterministic scratch-risk penalty for paths near pocket
   mouths.
+- `finalSafetyRoute`: the final ball's Route. It has no next Position Window,
+  so it is chosen for SAFETY — enumerate every open pocket x shot type at
+  minimal natural travel (`minCueTravel`, a soft position-free stroke; stop is
+  offered only on a near-straight cut) and pick the route maximizing
+  `P(pot) x P(no scratch)`, tie-breaking toward the easiest shot type
+  (`FINAL_TYPE_ORDER`). Scratch is priced through the same `pocketRisk`
+  machinery as mid-rack scratch (a route whose trace enters a pocket is floored
+  at `SCRATCH_FLOOR`, not discarded). No object balls remain when the 9 is shot,
+  so the trace sees only cushions and pocket mouths. Called from `solver.ts`
+  `finalize`; its `noScratch` multiplies the reported run-out probability.
 - `clearanceRisk`: deterministic penalty for a cue-ball path that threads
   close past a ball it is not playing position for (the object-ball twin of
   `pocketRisk`). The landing quadrature samples direction too coarsely to see
@@ -329,6 +339,11 @@ These parameters affect global pattern selection:
   read the same zone the route was scored against instead of rebuilding it. In
   the same pass it remeasures zoneLen/entryDeg against that zone with the
   pocket actually chosen — the role it previously had as `remeasureZones`.
+- `finalize`: appends the last shot and asks `finalSafetyRoute` (route.ts) for
+  the final ball's safety Route (it has no next window), stamping its shot type,
+  path, and landing instead of a null pot-only shot. The route's `noScratch`
+  multiplies into `Pattern.score`, so a 9 with only scratching routes collapses
+  the leg and generation rejects the layout on the score threshold.
 
 Only `score` is the reported run-out probability. `sortKey` is private and
 must remain a tie-break rather than a user-visible score.

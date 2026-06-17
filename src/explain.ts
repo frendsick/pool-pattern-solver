@@ -41,7 +41,18 @@ export function explainShot(
   const intro = first
     ? `Ball in hand: place the cue ball for a ${Math.round(shot.cutDeg)}° cut on the ${shot.ball.num}, into the ${shot.pocket.label}.`
     : `${shot.ball.num} ball into the ${shot.pocket.label} (${Math.round(shot.cutDeg)}° cut).`;
-  if (!shot.type || !next) {
+  if (!next) {
+    // Final ball: a Route chosen for safety (no next window to play for), so the
+    // cue ball is left clear of a scratch rather than positioned.
+    const safe = shot.type
+      ? ` ${typePhrase(shot.type)}${railsPhrase(shot.rails)} — a soft pot that keeps the cue ball off a scratch.`
+      : '';
+    return `${intro} Pot ${pct(shot.potProb)} — finish the rack.${safe}`;
+  }
+  if (!shot.type) {
+    // Narrows shot.type to non-null for the route phrasing below. Only the
+    // final ball can carry a null type, and that is handled by !next above, so
+    // this is effectively unreachable — but the guard keeps the types honest.
     return `${intro} Pot ${pct(shot.potProb)} — finish the rack.`;
   }
   let route: string;
