@@ -35,7 +35,7 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
 | `scene.ts` | 162 | Builds a `Scene` (one Pattern step) for the renderer: gathers window polygons, paths, ghosts. Shared by app and snapshot tool. | `geometry`, `table`, `skill`, `solver`, `zone`, `render`, `interaction` |
 | `render.ts` | 199 | Pure SVG renderer + `svgToTablePoint` inverse mapping. No DOM events. | `geometry`, `table` |
 | `playback.ts` | 165 | Kinematic shot replay (ADR-0006): maps animation time `t` to ball positions along the solver's already-traced geometry under one rolling-friction constant. Pure, no DOM/time. | `geometry`, `shots`, `solver`(types) |
-| `main.ts` | 407 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), the per-shot `requestAnimationFrame` playback loop, calls scene/render. | `skill`, `generator`, `geometry`, `table`, `solver`, `scene`, `render`, `playback`, `interaction`, `opening-validity` |
+| `main.ts` | 595 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), the per-shot playback loop (play/pause toggle + scrub bar driving `t`), calls scene/render. | `skill`, `generator`, `geometry`, `table`, `solver`, `scene`, `render`, `playback`, `interaction`, `opening-validity` |
 
 ### Dependency layering
 
@@ -208,16 +208,21 @@ main.ts (DOM ready)
    Navigation:  prev / next step buttons walk the Pattern's shots.
 
    Playback (opt-in, shot steps only):              [playback.ts + main.ts]
-     • Play ─► buildPlayback(shot) ─► ShotPlayback {duration, at(t)}
-     • requestAnimationFrame loop: per frame ask at(t) for ball positions,
-       build a BARE Scene (overlays suppressed) at those positions, renderScene.
+     • Play/Pause toggle + scrub bar ─► buildPlayback(shot) ─► ShotPlayback
+       {duration, at(t)}
+     • While PLAYING: a requestAnimationFrame loop advances `t`, asks at(t) for
+       ball positions, builds a BARE Scene (overlays suppressed) at those
+       positions, renderScene. The scrub bar tracks `t`.
+     • While FROZEN (paused, scrubbed, or rested on the leave): `t` is driven
+       directly — by the pause point or the dragged scrub — and the frame is the
+       planning Scene (overlays RESTORED) with balls/cue moved to at(t), so a
+       frozen frame reads against the plan (issue #20).
      • Kinematic replay over the traced geometry (ADR-0006): cue approach
        cuePos→ghost, then concurrent object-ball-to-pocket + cue carom along
-       `path` to `landing`, under one friction-decel constant. Plays once, then
-       auto-advances one step to the next shot's static diagram (overlays
-       restored); the final shot stays frozen on its leave. render.ts/scene.ts
-       are untouched (the bare Scene is assembled in main.ts), so the snapshot
-       tool is unaffected.
+       `path` to `landing`, under one friction-decel constant. Playing to the
+       end settles frozen on the leave (overlays restored); prev/next exits
+       playback back to the static diagram. render.ts/scene.ts are untouched
+       (both Scenes are assembled in main.ts), so the snapshot tool is unaffected.
 
    Interaction (drag):                              [interaction.ts + main.ts]
      • Opening cue drag  ─► openingPatternFromCue()  [opening-validity.ts]

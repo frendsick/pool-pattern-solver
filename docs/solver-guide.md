@@ -427,12 +427,15 @@ but they affect how users reach and inspect solver decisions:
   `DECEL` is a render-side timing fake tuned by feel, not a
   solver-known velocity, and it never moves a ball off the traced path. The
   module is pure (no DOM, no `requestAnimationFrame`): [src/main.ts](../src/main.ts)
-  owns the rAF loop, rebuilds a bare Scene (planning overlays suppressed) at each
-  frame's positions, and plays once. On completion it auto-advances one step to
-  the next shot's static planning diagram (overlays restored) and waits for
-  another Play; the final shot has no next shot, so it stays frozen on the leave.
-  Because the bare Scene is assembled in `main.ts`, `scene.ts`/`render.ts` stay
-  pure and the snapshot tool is unaffected.
+  owns the rAF loop and the play/pause + scrub controls (issue #20). While
+  PLAYING it advances `t` per frame and rebuilds a bare Scene (planning overlays
+  suppressed) at those positions; while FROZEN — paused, scrubbed, or rested on
+  the leave — it drives `t` directly (from the pause point or the dragged scrub)
+  and rebuilds the planning Scene with overlays RESTORED and only the balls/cue
+  moved to `at(t)`, so a frozen frame reads against the plan. Playing to the end
+  settles frozen on the leave; prev/next exits playback back to the static
+  diagram. Because both Scenes are assembled in `main.ts`, `scene.ts`/`render.ts`
+  stay pure and the snapshot tool is unaffected.
 - [src/explain.ts](../src/explain.ts): text thresholds and phrasing for shot
   explanations.
 

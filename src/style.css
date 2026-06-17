@@ -119,6 +119,21 @@ button.secondary {
   padding: 7px 12px;
 }
 
+.timeline {
+  margin-bottom: 14px;
+}
+
+.scrub {
+  width: 100%;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.scrub:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .table svg {
   width: 100%;
   height: auto;

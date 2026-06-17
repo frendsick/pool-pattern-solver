@@ -32,8 +32,14 @@ const el = {
   prev: document.getElementById('prev') as HTMLButtonElement,
   next: document.getElementById('next') as HTMLButtonElement,
   play: document.getElementById('play') as HTMLButtonElement,
+  scrub: document.getElementById('scrub') as HTMLInputElement,
   restoreLine: document.getElementById('restoreLine') as HTMLButtonElement,
 };
+
+// Integer resolution of the scrub <input type="range">; its value maps to a
+// fraction value/SCRUB_MAX of the shot's full duration, so the slider is
+// decoupled from each shot's (varying) wall-clock length.
+const SCRUB_MAX = 1000;
 
 type OpeningPlacement = 'solver' | 'player';
 
@@ -66,10 +72,22 @@ let step = 0; // 0 = first-look layout, 1 = overview, 2..N+1 = shots
 let drag: DragState | null = null;
 let statusCaption: string | null = null;
 
-// Per-shot real-time playback (issue #19): a rAF loop walks playback.ts and
-// rebuilds a bare Scene per frame. Null whenever the diagram is at rest.
-type PlayState = { index: number; pb: ShotPlayback; start: number; raf: number };
-let playState: PlayState | null = null;
+// Per-shot playback (issues #19, #20). A shot the user has begun watching: `pb`
+// is the kinematic replay, `t` the current animation time (seconds). `playing`
+// drives the rAF clock; when it is false the frame is FROZEN (paused, scrubbed,
+// or rested on the leave) and the planning overlays are restored so the frozen
+// frame can be read against the plan. `last` is the previous animated frame's
+// timestamp, so pause/resume accumulates elapsed time instead of restarting.
+// Null whenever the diagram is at rest on a planning step (no shot begun).
+type Playback = {
+  index: number;
+  pb: ShotPlayback;
+  t: number;
+  playing: boolean;
+  raf: number;
+  last: number;
+};
+let playback: Playback | null = null;
 
 function captionForStep(
   pattern: Pattern,
@@ -140,17 +158,23 @@ function renderCurrent(): void {
   updateControls();
 }
 
-// Button enabled-state, factored out so stopPlayback can restore it without
-// re-rendering (which would repaint planning overlays over the frozen leave).
+// Button enabled-state, factored out so the playback loop can restore it
+// without re-rendering (which would repaint planning overlays over a play frame).
 function updateControls(): void {
   if (!puzzle || !activePattern) return;
   const n = activePattern.shots.length;
-  const playing = playState !== null;
+  const playing = playback?.playing ?? false;
+  const onShot = currentShotIndex() !== null;
+  // Stepping is locked only during ACTIVE play; while paused/scrubbing the user
+  // can still step away (which exits playback).
   el.prev.disabled = playing || step === 0;
   el.next.disabled = playing || step === n + 1;
-  // Play is present always but inert off shot steps (layout/overview) and
-  // while a shot is already playing.
-  el.play.disabled = playing || currentShotIndex() === null;
+  // Play/Pause and the scrub are present always but inert off shot steps
+  // (layout/overview). The Play button doubles as the pause toggle.
+  el.play.disabled = !onShot;
+  el.play.innerHTML = playing ? '&#10073;&#10073; Pause' : '&#9658; Play';
+  el.scrub.disabled = !onShot;
+  if (!playback) el.scrub.value = '0';
   el.newLayout.disabled = playing;
   el.ballCount.disabled = playing;
   el.restoreLine.disabled =
@@ -217,56 +241,111 @@ function playbackScene(index: number, cue: Vec, object: Vec | null): Scene {
   };
 }
 
-function playbackFrame(ts: number): void {
-  if (!playState) return;
-  if (playState.start < 0) playState.start = ts;
-  const t = (ts - playState.start) / 1000;
-  const st = playState.pb.at(t);
-  el.table.innerHTML = renderScene(playbackScene(playState.index, st.cue, st.object));
-  if (st.done) {
-    finishPlayback(); // advance to the next shot, or freeze on the final leave
+// A FROZEN playback frame WITH the planning overlays restored: this shot's
+// planning diagram (window, arrows, ghost, landing marker) with the balls and
+// cue moved to their animated positions at the current `t`. Used while paused,
+// scrubbing, or rested on the leave, so the frozen frame reads against the plan.
+function frozenScene(index: number, cue: Vec, object: Vec | null): Scene {
+  if (!puzzle || !activePattern) throw new Error('frozenScene without a puzzle');
+  const base = sceneForStep(puzzle.layout, activePattern, index + 2, INTERMEDIATE);
+  const remaining = puzzle.layout.balls.slice(index);
+  const shotBall = remaining[0];
+  const rest = remaining.slice(1);
+  return {
+    ...base,
+    balls: object ? [{ ...shotBall, pos: object }, ...rest] : rest,
+    cue,
+    cueDraggable: false,
+  };
+}
+
+// Paint the current playback frame: overlays suppressed while actively playing,
+// restored (frozenScene) when frozen. Also keep the scrub in sync with `t`.
+function renderPlaybackFrame(): void {
+  if (!playback) return;
+  const st = playback.pb.at(playback.t);
+  const scene = playback.playing
+    ? playbackScene(playback.index, st.cue, st.object)
+    : frozenScene(playback.index, st.cue, st.object);
+  el.table.innerHTML = renderScene(scene);
+  const frac = playback.pb.duration > 0 ? playback.t / playback.pb.duration : 0;
+  el.scrub.value = String(Math.round(frac * SCRUB_MAX));
+}
+
+function playbackTick(ts: number): void {
+  if (!playback || !playback.playing) return;
+  if (playback.last < 0) playback.last = ts;
+  playback.t = Math.min(playback.pb.duration, playback.t + (ts - playback.last) / 1000);
+  playback.last = ts;
+  if (playback.t >= playback.pb.duration) {
+    pausePlayback(); // reached the leave — settle frozen at rest, overlays back
     return;
   }
-  playState.raf = requestAnimationFrame(playbackFrame);
+  renderPlaybackFrame();
+  playback.raf = requestAnimationFrame(playbackTick);
 }
 
-// A shot's video has played out. Advance to the next shot's static planning
-// diagram and wait for another Play; the final shot has no next shot, so it
-// stays frozen on the leave just rendered.
-function finishPlayback(): void {
-  if (!playState || !activePattern) return;
-  cancelAnimationFrame(playState.raf);
-  const index = playState.index;
-  playState = null;
-  const isLastShot = index >= activePattern.shots.length - 1;
-  if (isLastShot) {
-    updateControls(); // freeze on the leave; nothing to advance to
-  } else {
-    step += 1; // step i+2 -> i+3, the next shot
-    renderCurrent(); // restores the planning overlays for the next shot
-  }
-}
-
-function startPlayback(): void {
-  if (playState || !activePattern) return;
+// Begin watching the current shot, lazily building its replay. Null off a shot.
+function ensurePlayback(): Playback | null {
+  if (playback) return playback;
+  if (!activePattern) return null;
   const index = currentShotIndex();
-  if (index === null) return;
-  clearStatus();
-  playState = {
-    index,
-    pb: buildPlayback(activePattern.shots[index]),
-    start: -1,
-    raf: 0,
-  };
-  updateControls();
-  playState.raf = requestAnimationFrame(playbackFrame);
+  if (index === null) return null;
+  playback = { index, pb: buildPlayback(activePattern.shots[index]), t: 0, playing: false, raf: 0, last: -1 };
+  return playback;
 }
 
-function stopPlayback(): void {
-  if (!playState) return;
-  cancelAnimationFrame(playState.raf);
-  playState = null;
+function play(): void {
+  clearStatus();
+  const p = ensurePlayback();
+  if (!p) return;
+  if (p.t >= p.pb.duration) p.t = 0; // replay from the top once rested on the leave
+  p.playing = true;
+  p.last = -1;
   updateControls();
+  renderPlaybackFrame(); // hide overlays immediately
+  p.raf = requestAnimationFrame(playbackTick);
+}
+
+// Stop the rAF clock and mark the frame frozen, WITHOUT rendering — the single
+// source of truth for "stop the clock". Callers render at the `t` they want
+// (pausePlayback at the current `t`, scrubTo at the dragged `t`).
+function freezeClock(p: Playback): void {
+  if (p.raf) cancelAnimationFrame(p.raf);
+  p.raf = 0;
+  p.playing = false;
+}
+
+function pausePlayback(): void {
+  if (!playback) return;
+  freezeClock(playback);
+  updateControls();
+  renderPlaybackFrame(); // frozen frame, overlays restored
+}
+
+function togglePlay(): void {
+  if (playback?.playing) pausePlayback();
+  else play();
+}
+
+// Drag the timeline to any moment: pauses if playing, then drives `t` directly
+// and re-renders the frozen frame there (mid-carom, at a rebound, the leave…).
+function scrubTo(frac: number): void {
+  clearStatus();
+  const p = ensurePlayback();
+  if (!p) return;
+  freezeClock(p);
+  p.t = Math.max(0, Math.min(1, frac)) * p.pb.duration;
+  updateControls();
+  renderPlaybackFrame();
+}
+
+// Exit playback entirely, back to the at-rest planning diagram. The caller is
+// responsible for the follow-up renderCurrent().
+function stopPlayback(): void {
+  if (!playback) return;
+  if (playback.raf) cancelAnimationFrame(playback.raf);
+  playback = null;
 }
 
 function pointerToTable(e: PointerEvent): Vec | null {
@@ -415,7 +494,7 @@ function startAlternativeDrag(e: PointerEvent, index: number, p: Vec): void {
 }
 
 el.table.addEventListener('pointerdown', (e) => {
-  if (playState) return;
+  if (playback) return; // cue dragging is off while a shot is being watched
   if (!puzzle || !activePattern || e.button !== 0) return;
   const p = pointerToTable(e);
   if (!p) return;
@@ -474,6 +553,7 @@ el.ballCount.addEventListener('change', () => {
 });
 el.prev.addEventListener('click', () => {
   if (step > 0) {
+    stopPlayback();
     clearStatus();
     step--;
     renderCurrent();
@@ -481,16 +561,22 @@ el.prev.addEventListener('click', () => {
 });
 el.next.addEventListener('click', () => {
   if (activePattern && step < activePattern.shots.length + 1) {
+    stopPlayback();
     clearStatus();
     step++;
     renderCurrent();
   }
 });
 el.play.addEventListener('click', () => {
-  startPlayback();
+  togglePlay();
+});
+el.scrub.addEventListener('input', () => {
+  if (el.scrub.disabled) return;
+  scrubTo(Number(el.scrub.value) / SCRUB_MAX);
 });
 el.restoreLine.addEventListener('click', () => {
   if (!puzzle) return;
+  stopPlayback();
   activePattern = puzzle.pattern;
   activeOpeningPlacement = 'solver';
   drag = null;
