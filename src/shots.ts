@@ -1,7 +1,6 @@
-// Idealized cue-ball model (ADR-0001): four shot types fix the departure
-// direction off the object ball; travel distance is the free speed parameter;
-// rails rebound mirror-style. Rail rebound is kept behind `reflect` so a
-// sidespin model can replace it later.
+// Idealized cue-ball model (ADR-0001/0007): ShotType fixes the vertical
+// departure behavior off the object ball, sidespin is an orthogonal left/right
+// control, and travel distance is the free speed parameter.
 
 import {
   Vec,
@@ -9,8 +8,10 @@ import {
   sub,
   scale,
   dot,
+  cross,
   norm,
   dist,
+  rotate,
   rayCircleHit,
   segmentClearsCircle,
   angleBetween,
@@ -18,6 +19,10 @@ import {
 import { BALL_R, MIN_X, MAX_X, MIN_Y, MAX_Y, POCKETS, Pocket } from './table';
 
 export type ShotType = 'stop' | 'follow' | 'stun' | 'lowTouch' | 'draw';
+
+export const SIDESPINS = [-0.5, 0, 0.5] as const;
+export type Sidespin = (typeof SIDESPINS)[number];
+export const MAX_MODELED_SIDESPIN = Math.max(...SIDESPINS.map((s) => Math.abs(s)));
 
 /** "Touch of low": fraction of full draw — a slight pull off the tangent. */
 const LOW_TOUCH = 0.4;
@@ -261,6 +266,26 @@ function reflect(dir: Vec, wall: 'x' | 'y'): Vec {
   return wall === 'x' ? { x: -dir.x, y: dir.y } : { x: dir.x, y: -dir.y };
 }
 
+const MAX_SIDESPIN_REBOUND_DELTA = (7 * Math.PI) / 180;
+
+function rebound(dir: Vec, wall: 'x' | 'y', sidespin: Sidespin): Vec {
+  const mirrored = reflect(dir, wall);
+  if (sidespin === 0) return mirrored;
+  const tangent = wall === 'x' ? { x: 0, y: 1 } : { x: 1, y: 0 };
+  const rightOfTravel = rotate(dir, -Math.PI / 2);
+  const tangentPush = dot(rightOfTravel, tangent) * sidespin;
+  const tangentSpeed = Math.abs(dot(dir, tangent));
+  const grazingFactor = Math.sqrt(tangentSpeed);
+  const towardTangent = Math.sign(cross(mirrored, tangent)) || 1;
+  return norm(rotate(mirrored, towardTangent * tangentPush * grazingFactor * MAX_SIDESPIN_REBOUND_DELTA));
+}
+
+export interface TraceOptions {
+  maxRails?: number;
+  curve?: CaromCurve;
+  sidespin?: Sidespin;
+}
+
 /**
  * Trace the cue ball from `start` for `totalDist` inches of path, reflecting
  * off cushions. With a `curve`, the ball first follows the slide-phase
@@ -273,9 +298,9 @@ export function tracePath(
   dir0: Vec,
   totalDist: number,
   obstacles: Vec[],
-  maxRails = 4,
-  curve?: CaromCurve,
+  options: TraceOptions = {},
 ): TraceResult {
+  const { maxRails = 4, curve, sidespin = 0 } = options;
   let pos = { ...start };
   let dir = norm(dir0);
   // Slide-phase vertices still ahead (absolute); mirrored with dir on rebounds.
@@ -357,7 +382,7 @@ export function tracePath(
       pending = pending.map((p) =>
         w === 'x' ? { x: 2 * wx - p.x, y: p.y } : { x: p.x, y: 2 * wy - p.y },
       );
-      dir = reflect(dir, w);
+      dir = rebound(dir, w, sidespin);
     } else if (pending.length > 0 && tStop >= segLen - 1e-9) {
       pending.shift(); // reached a slide vertex
     }

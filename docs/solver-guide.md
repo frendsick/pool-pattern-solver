@@ -106,6 +106,10 @@ reliability, landing spread, and zone feasibility:
 - `speedSigmaFloor`: minimum landing-distance uncertainty by shot type.
 - `dirSigma`: shot-type departure-direction uncertainty.
 - `railDirSigma`: added direction uncertainty per rail.
+- `sidespinReliability`: clean execution reliability for half-maximum
+  sidespin.
+- `sidespinRailDirSigma`: added rebound-direction uncertainty per rail for
+  half-maximum sidespin, scaled by the chosen sidespin amount.
 - `drawDistFactor`: long-shot draw difficulty multiplier.
 - `drawShortEase`: short-shot draw reliability easing.
 - `stopDrift`: distance-dependent drift for stop shots.
@@ -161,7 +165,11 @@ Authoritative source: [src/shots.ts](../src/shots.ts).
 These parameters define the idealized cue-ball physics used by both route
 search and zone onward-control checks:
 
-- `ShotType`: the set of available cue-ball actions.
+- `ShotType`: the set of available vertical cue-ball actions.
+- `SIDESPINS`, `Sidespin`, and `MAX_MODELED_SIDESPIN`: the left/right spin
+  control axis composed with ShotType. Values are normalized by maximum
+  practical side offset; v1 enumerates no spin plus half-maximum left/right
+  spin.
 - `LOW_TOUCH`: how far the touch-of-low action sits between stun and draw.
 - `POCKET_PACE`: minimum object-ball pace assumed by `minCueTravel`.
 - `SLIDE_ROLL_RATIO`: slide-to-roll friction ratio for curved carom paths.
@@ -169,10 +177,13 @@ search and zone onward-control checks:
 - `rollShare`, `signedRollShare`, `minCueTravel`, and `hitDistance`: not
   plain constants, but decision formulas that translate shot type, cut angle,
   ball-to-pocket distance, and travel into forced motion and hit power.
-- `tracePath`: rebound, collision, scratch, and rail-count semantics.
+- `tracePath`: rebound, collision, scratch, and rail-count semantics. Its
+  options object owns `maxRails`, optional curved carom geometry, and
+  `sidespin`; numeric trace options are intentionally not supported.
 
-When adding a shot type, update `ShotType`, departure geometry, skill-profile
-records, route generation, explanation text, and tests together.
+When adding a shot type or sidespin amount, update the cue-ball model,
+skill-profile pricing, route generation, explanation text, docs, and tests
+together.
 
 ### Position Zones
 
@@ -288,7 +299,10 @@ and position expectation:
 - `LANDING_RAIL_INSET`: strict-pass clearance from awkward rail-band landings.
 - `SCRATCH_MARGIN`: near-pocket scratch-risk margin.
 - `zoneTargets`: which pockets are eligible for the next ball.
-- `routeCandidates`: stop/follow/stun/low/draw candidate enumeration,
+- `routeCandidates`: stop/follow/stun/low/draw candidate enumeration. Nonzero
+  sidespin is a fallback axis for a type/target when the no-spin route has no
+  usable sample; it carries no modeled benefit before a cushion, and final-ball
+  safety routes stay no-spin. Also owns
   effective-value bars, interval selection, deep-end landing candidates,
   simple-route comparison for redundant rail-follow, and route ease.
 - `expectedNextPot`: landing-spread quadrature used for final position value.

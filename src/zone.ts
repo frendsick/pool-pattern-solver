@@ -237,10 +237,14 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
     const forced = Math.exp(-minTravel / skill.positionTravelScale);
     const cap = forced * routeReliability(type, g.dCueGhost, skill);
     if (cap <= best) continue; // cannot beat what another exit already offers
-    const tr = tracePath(g.ghost, locus.dir, CONTROL_RANGE * locus.eta, z.obstacles, 3);
+    const tr = tracePath(g.ghost, locus.dir, CONTROL_RANGE * locus.eta, z.obstacles, {
+      maxRails: 3,
+    });
     const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
     let priced = false; // have we passed the pot-forced minimum travel yet?
-    for (const st of walkExit(tr.points, locus.eta, firstSeg, g, type, skill, CONTROL_STEP, false)) {
+    for (const st of walkExit(
+      tr.points, locus.eta, firstSeg, g, type, 0, skill, CONTROL_STEP, false,
+    )) {
       if (st.ease <= 0) {
         if (priced) break; // power exhausted; farther only needs more
         continue; // still below the pot-forced minimum travel

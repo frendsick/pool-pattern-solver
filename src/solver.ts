@@ -15,6 +15,7 @@ import { Ball, Layout, Pocket, POCKETS } from './table';
 import {
   ShotGeometry,
   ShotType,
+  Sidespin,
   shotGeometry,
   tracePath,
   caromCurve,
@@ -54,6 +55,7 @@ export interface PlannedShot {
   potProb: number;
   /** Route to the next shot; null for the final ball. */
   type: ShotType | null;
+  sidespin: Sidespin;
   path: Vec[] | null;
   landing: Vec | null;
   rails: number;
@@ -215,6 +217,7 @@ function expandPass(
         { g: c.node.pending.g, pocket: c.node.pending.pocket },
         curve,
         c.node.pending.fromHand,
+        c.sidespin,
       ) * c.ease * c.windowFactor;
     if (e <= 0.01) continue;
     const gNext = shotGeometry(c.landing, nextBall.pos, c.nextPocket);
@@ -223,7 +226,11 @@ function expandPass(
     const potNext = zoneValue(c.landing, c.zcPot, skill);
     if (potNext <= 0) continue;
     const intendedPath = tracePath(
-      c.node.pending.g.ghost, c.dir, c.travel, obstacles, 4, curve,
+      c.node.pending.g.ghost, c.dir, c.travel, obstacles, {
+        maxRails: 4,
+        curve,
+        sidespin: c.sidespin,
+      },
     );
     const risk =
       pocketRisk(intendedPath.points) * clearanceRisk(intendedPath.points, laterPos);
@@ -236,6 +243,7 @@ function expandPass(
       cutDeg: (p.g.cut * 180) / Math.PI,
       potProb: p.potProb,
       type: c.type,
+      sidespin: c.sidespin,
       path: intendedPath.points,
       landing: c.landing,
       rails: c.rails,
@@ -356,6 +364,7 @@ function finalize(
           cutDeg: (safe.g.cut * 180) / Math.PI,
           potProb: safe.potProb,
           type: safe.type,
+          sidespin: safe.sidespin,
           path: safe.path,
           landing: safe.landing,
           rails: safe.rails,
@@ -367,6 +376,7 @@ function finalize(
           cutDeg: (p.g.cut * 180) / Math.PI,
           potProb: p.potProb,
           type: null,
+          sidespin: 0,
           path: null,
           landing: null,
           rails: 0,

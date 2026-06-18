@@ -77,7 +77,7 @@ function alignedCuts(
       for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
         const locus = caromLocus(g, type);
         if (!locus) continue;
-        const tr = tracePath(g.ghost, locus.dir, MAX_ROUTE * locus.eta, others, 3);
+        const tr = tracePath(g.ghost, locus.dir, MAX_ROUTE * locus.eta, others, { maxRails: 3 });
         for (let i = 0; i + 1 < tr.points.length; i++) {
           const a = tr.points[i];
           const segLen = dist(a, tr.points[i + 1]);

@@ -28,6 +28,7 @@ function makeShot(over: Partial<PlannedShot>): PlannedShot {
     cutDeg: 0,
     potProb: 1,
     type: 'follow',
+    sidespin: 0,
     path: [vec(50, 22.75), vec(50, 40)],
     landing: vec(50, 40),
     rails: 0,
