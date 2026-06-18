@@ -73,8 +73,21 @@ route search share the same backward-gated value surfaces.
 Routes are idealized cue-ball paths. The available shot types are defined in
 [src/shots.ts](../src/shots.ts). Paths use the project's analytic cue-ball
 model: shot type fixes the post-contact departure behavior, travel is the
-speed parameter, cushions use mirror-law rebound, and follow/draw paths may
-include a curved slide phase before natural roll.
+speed parameter, cushions use mirror-law rebound, sidespin adjusts cushion
+rebound, and follow/draw paths may include a curved slide phase before natural
+roll.
+
+Sidespin rebound is a diamond-calibrated heuristic, not full ball-cushion
+physics. In `tracePath`, half-maximum sidespin (`0.5`) is calibrated so a
+square long-rail-to-long-rail rebound moves about one diamond from the mirror
+line; maximum practical sidespin would imply about two diamonds. The modeled
+effect scales by the cue ball's normal component into the cushion, so a square
+attack keeps the full effect and a glancing attack approaches no effect. This
+captures the practical direction of the dropoff, but it deliberately omits the
+real spin/speed-ratio state at cushion contact: spin decay, drag-shot
+intensification, speed removed by object-ball contact, cushion friction details,
+rail-induced spin, and the coupled squirt, swerve, and throw effects of
+sidespin.
 
 The opening shot is special because the player has ball in hand. The solver
 can choose exact cue-ball placement, including placements engineered so the
@@ -179,7 +192,9 @@ search and zone onward-control checks:
   ball-to-pocket distance, and travel into forced motion and hit power.
 - `tracePath`: rebound, collision, scratch, and rail-count semantics. Its
   options object owns `maxRails`, optional curved carom geometry, and
-  `sidespin`; numeric trace options are intentionally not supported.
+  `sidespin`; numeric trace options are intentionally not supported. Sidespin
+  rebound is intentionally local to cushion contact and does not update a
+  persistent spin state between rails.
 
 When adding a shot type or sidespin amount, update the cue-ball model,
 skill-profile pricing, route generation, explanation text, docs, and tests

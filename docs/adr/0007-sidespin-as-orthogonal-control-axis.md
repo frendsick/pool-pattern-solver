@@ -37,6 +37,20 @@ about one diamond from the mirror line, while maximum sidespin would move about
 two diamonds. The effect scales down as the cue ball attacks the cushion at a
 larger angle.
 
+That dropoff is an intentional heuristic: the rebound adjustment is multiplied
+by the cue ball's normal component into the cushion, so square cushion contact
+gets the full calibrated effect and glancing contact gets little effect. In
+real play, the rebound change depends on the spin/speed ratio at cushion
+contact, not just the originally chosen sidespin amount. That ratio can be
+changed before the cushion by cloth drag, draw/drag action, object-ball
+collision speed loss, shot speed, cue elevation, and table conditions. The
+implementation does not maintain that physical spin state.
+
+The implementation also does not model spin transfer or decay across rails. A
+second-rail path reuses the same chosen sidespin amount with the same
+angle-dropoff rule, instead of deriving the remaining or cushion-induced spin
+from the previous cushion impact.
+
 Nonzero sidespin carries its own execution cost and extra rebound-direction
 uncertainty. This keeps sidespin available as a useful route-control tool
 without making the solver overuse it as the default answer to position.
@@ -57,5 +71,9 @@ odd explanations before the safety value is well calibrated.
 - Player-facing explanations use "left spin" and "right spin".
 - Direct no-rail routes use `0` sidespin in the first implementation because
   rebound-only sidespin has no modeled benefit before a cushion.
+- The rebound model is best read as a pattern-play control vocabulary, not as a
+  measured ball-cushion simulator. It can compare natural and left/right-spin
+  route shapes, but it should not be used to predict exact multi-rail spin
+  physics.
 - ADR-0001 remains accepted for the idealized cue-ball model and the rejection
   of a physics engine; this ADR amends only its deferred-sidespin limitation.
