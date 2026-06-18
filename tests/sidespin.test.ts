@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { vec, norm, dist } from '../src/geometry';
-import { pocketById, Layout } from '../src/table';
+import { pocketById, Layout, MAX_Y, MIN_Y, TABLE_W } from '../src/table';
 import { shotGeometry, minCueTravel, tracePath } from '../src/shots';
 import {
   directionSigma,
@@ -27,6 +27,27 @@ describe('sidespin cue-ball model', () => {
     expect(dist(right.end, left.end)).toBeGreaterThan(0.8);
     expect(dist(neutral.end, right.end)).toBeGreaterThan(0.4);
     expect(dist(neutral.end, left.end)).toBeGreaterThan(0.4);
+  });
+
+  it('moves one diamond on a straight long-rail rebound with half-maximum spin', () => {
+    const start = vec(25, 10);
+    const crossTable = MAX_Y - MIN_Y;
+    const oneDiamond = TABLE_W / 8;
+    const reboundAngle = Math.atan(oneDiamond / crossTable);
+    const travelToTopRail = MAX_Y - start.y;
+    const travelBackToBottomRail = crossTable / Math.cos(reboundAngle);
+
+    const right = tracePath(start, vec(0, 1), travelToTopRail + travelBackToBottomRail, [], {
+      sidespin: 0.5,
+    });
+    const left = tracePath(start, vec(0, 1), travelToTopRail + travelBackToBottomRail, [], {
+      sidespin: -0.5,
+    });
+
+    expect(right.end.y).toBeCloseTo(MIN_Y, 3);
+    expect(left.end.y).toBeCloseTo(MIN_Y, 3);
+    expect(right.end.x).toBeCloseTo(start.x + oneDiamond, 1);
+    expect(left.end.x).toBeCloseTo(start.x - oneDiamond, 1);
   });
 
   it('prices half-maximum sidespin and adds rebound direction uncertainty', () => {

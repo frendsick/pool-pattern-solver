@@ -16,7 +16,7 @@ import {
   segmentClearsCircle,
   angleBetween,
 } from './geometry';
-import { BALL_R, MIN_X, MAX_X, MIN_Y, MAX_Y, POCKETS, Pocket } from './table';
+import { BALL_R, TABLE_W, TABLE_H, MIN_X, MAX_X, MIN_Y, MAX_Y, POCKETS, Pocket } from './table';
 
 export type ShotType = 'stop' | 'follow' | 'stun' | 'lowTouch' | 'draw';
 
@@ -266,7 +266,8 @@ function reflect(dir: Vec, wall: 'x' | 'y'): Vec {
   return wall === 'x' ? { x: -dir.x, y: dir.y } : { x: dir.x, y: -dir.y };
 }
 
-const MAX_SIDESPIN_REBOUND_DELTA = (7 * Math.PI) / 180;
+const LONG_RAIL_DIAMOND = TABLE_W / 8;
+const SHORT_RAIL_DIAMOND = TABLE_H / 4;
 
 function rebound(dir: Vec, wall: 'x' | 'y', sidespin: Sidespin): Vec {
   const mirrored = reflect(dir, wall);
@@ -274,10 +275,12 @@ function rebound(dir: Vec, wall: 'x' | 'y', sidespin: Sidespin): Vec {
   const tangent = wall === 'x' ? { x: 0, y: 1 } : { x: 1, y: 0 };
   const rightOfTravel = rotate(dir, -Math.PI / 2);
   const tangentPush = dot(rightOfTravel, tangent) * sidespin;
-  const tangentSpeed = Math.abs(dot(dir, tangent));
-  const grazingFactor = Math.sqrt(tangentSpeed);
+  const normalSpeed = Math.abs(wall === 'x' ? dir.x : dir.y);
+  const crossTable = wall === 'x' ? MAX_X - MIN_X : MAX_Y - MIN_Y;
+  const oneDiamond = wall === 'x' ? SHORT_RAIL_DIAMOND : LONG_RAIL_DIAMOND;
+  const tangentShift = 2 * oneDiamond * tangentPush * normalSpeed;
   const towardTangent = Math.sign(cross(mirrored, tangent)) || 1;
-  return norm(rotate(mirrored, towardTangent * tangentPush * grazingFactor * MAX_SIDESPIN_REBOUND_DELTA));
+  return norm(rotate(mirrored, towardTangent * Math.atan(tangentShift / crossTable)));
 }
 
 export interface TraceOptions {

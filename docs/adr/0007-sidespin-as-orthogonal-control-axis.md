@@ -31,6 +31,12 @@ cushion rebound angles, but squirt, swerve, and throw are deferred. The first
 solver win is rail-assisted position: sidespin can open or hold a rebound angle
 that mirror-law rebound cannot express.
 
+Cushion rebound is calibrated by diamond displacement: half-maximum sidespin
+(`0.5`, roughly one tip of spin) moves a straight long-rail-to-long-rail kick
+about one diamond from the mirror line, while maximum sidespin would move about
+two diamonds. The effect scales down as the cue ball attacks the cushion at a
+larger angle.
+
 Nonzero sidespin carries its own execution cost and extra rebound-direction
 uncertainty. This keeps sidespin available as a useful route-control tool
 without making the solver overuse it as the default answer to position.
