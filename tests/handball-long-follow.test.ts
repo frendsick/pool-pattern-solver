@@ -86,8 +86,11 @@ describe('handball long follow fallback (seed 791175205)', () => {
         c.dir,
         c.travel,
         obstacles,
-        4,
-        caromCurve(g, c.type, c.travel) ?? undefined,
+        {
+          maxRails: 4,
+          curve: caromCurve(g, c.type, c.travel) ?? undefined,
+          sidespin: c.sidespin,
+        },
       );
       if (tr.outcome !== 'ok') return false;
       return railPoints(tr.points).some((p) => dist(p, oldNine) < 12);

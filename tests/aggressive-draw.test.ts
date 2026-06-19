@@ -54,7 +54,7 @@ describe('golden: easy short 8 ball, 9 far up-table (2026-06-12 round 10)', () =
     const rel = routeReliability(type, g.dCueGhost, INTERMEDIATE);
     let best = { e: 0, landing: g.ghost };
     for (let travel = Math.max(2, minCueTravel(g, type)); travel <= 120; travel += 2) {
-      const tr = tracePath(g.ghost, dir, travel, [ball9], 4);
+      const tr = tracePath(g.ghost, dir, travel, [ball9], { maxRails: 4 });
       if (tr.outcome !== 'ok') continue;
       const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
       const railFac = tr.rails === 0 ? 1 : drawRailFactor(type, firstSeg, INTERMEDIATE);

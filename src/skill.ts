@@ -7,6 +7,8 @@ import { BALL_R, Pocket, effectiveAcceptance } from './table';
 import {
   ShotGeometry,
   ShotType,
+  Sidespin,
+  MAX_MODELED_SIDESPIN,
   approachDeviation,
   signedRollShare,
   minCueTravel,
@@ -103,6 +105,10 @@ export interface SkillProfile {
    * cue-to-ball distance (see routeReliability).
    */
   typeReliability: Record<ShotType, number>;
+  /** Clean execution reliability for half-maximum sidespin. */
+  sidespinReliability: number;
+  /** Extra rebound-direction error per cushion for half-maximum sidespin. */
+  sidespinRailDirSigma: number;
   /**
    * Draw (and, half as much, a touch of low) needs the cue ball to have room
    * for the backspin to act before the first cushion: a tangent line that
@@ -159,6 +165,8 @@ export const INTERMEDIATE: SkillProfile = {
   straightFollowMultiRailReliability: 0.75,
   positionTravelScale: 45,
   typeReliability: { stop: 0.99, follow: 0.98, lowTouch: 0.96, stun: 0.93, draw: 0.85 },
+  sidespinReliability: 0.85,
+  sidespinRailDirSigma: deg(1.4),
   drawRailRoom: 10,
   handDirEase: 0.5,
   // 300" (~7.6 m equivalent roll-out): a firm position follow is a routine
@@ -299,6 +307,14 @@ export function routeReliability(
   return Math.pow(skill.typeReliability[type], f);
 }
 
+function sidespinScale(sidespin: Sidespin): number {
+  return Math.abs(sidespin) / MAX_MODELED_SIDESPIN;
+}
+
+export function sidespinReliability(sidespin: Sidespin, skill: SkillProfile): number {
+  return sidespin === 0 ? 1 : Math.pow(skill.sidespinReliability, sidespinScale(sidespin));
+}
+
 /**
  * Execution cost for rigid multi-rail follow routes from near-straight cuts:
  * with little cut angle, the cue ball mostly owns one narrow aim-line path,
@@ -332,6 +348,7 @@ export function railRouteFactor(
 export function routeEase(
   g: ShotGeometry,
   type: ShotType,
+  sidespin: Sidespin,
   travel: number,
   rails: number,
   firstRailDist: number | null,
@@ -341,6 +358,7 @@ export function routeEase(
   const railFac = rails === 0 ? 1 : drawRailFactor(type, firstRailDist, skill);
   return (
     routeReliability(type, g.dCueGhost, skill) *
+    sidespinReliability(sidespin, skill) *
     railFac *
     railRouteFactor(type, g.cut, rails, skill) *
     powerFactor(hitDistance(g, type, travel), skill)
@@ -380,6 +398,7 @@ export function* walkExit(
   firstSeg: number | null,
   g: ShotGeometry,
   type: ShotType,
+  sidespin: Sidespin,
   skill: SkillProfile,
   step: number,
   includeSegStart: boolean,
@@ -398,7 +417,7 @@ export function* walkExit(
         point: add(a, scale(d, t)),
         rails: i,
         dirAt: d,
-        ease: routeEase(g, type, travel, i, firstSeg, skill),
+        ease: routeEase(g, type, sidespin, travel, i, firstSeg, skill),
       };
     }
     s += segLen;
@@ -447,12 +466,16 @@ export function directionSigma(
   carom?: { g: ShotGeometry; pocket: Pocket },
   /** Played from ball in hand: the spotted, rehearsed carom (handDirEase). */
   fromHand = false,
+  sidespin: Sidespin = 0,
 ): number {
   const stroke = skill.dirSigma[type] * shotDistFactor(type, shotDist, skill);
   const base = carom
     ? Math.hypot(stroke, caromDirSigma(carom.g, type, carom.pocket, skill))
     : stroke;
-  return base * (fromHand ? skill.handDirEase : 1) + rails * skill.railDirSigma;
+  return (
+    base * (fromHand ? skill.handDirEase : 1) +
+    rails * (skill.railDirSigma + skill.sidespinRailDirSigma * sidespinScale(sidespin))
+  );
 }
 
 /**

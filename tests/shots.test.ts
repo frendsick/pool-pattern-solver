@@ -185,7 +185,10 @@ describe('carom curve (30-degree rule trajectory)', () => {
       expect(locus.eta).toBeLessThanOrEqual(1);
       for (const travel of [20, 40]) {
         const cv = caromCurve(g, type, travel)!;
-        const tr = tracePath(g.ghost, departureDir(g, type)!, travel, [], 4, cv);
+        const tr = tracePath(g.ghost, departureDir(g, type)!, travel, [], {
+          maxRails: 4,
+          curve: cv,
+        });
         const expected = add(g.ghost, scale(locus.dir, locus.eta * travel));
         expect(tr.rails).toBe(0);
         expect(dist(tr.end, expected)).toBeLessThan(0.05);

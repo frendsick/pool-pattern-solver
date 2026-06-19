@@ -2,7 +2,7 @@
 // one-sentence description of the pocket, route, and position play.
 
 import { dist } from './geometry';
-import { ShotType } from './shots';
+import { ShotType, Sidespin } from './shots';
 import { SkillProfile, distanceSigma } from './skill';
 import type { PlannedShot } from './solver';
 
@@ -22,6 +22,12 @@ function railsPhrase(rails: number): string {
   if (rails === 0) return '';
   if (rails === 1) return ' off one rail';
   return ` off ${rails === 2 ? 'two' : 'three'} rails`;
+}
+
+function spinPhrase(sidespin: Sidespin): string {
+  if (sidespin > 0) return ' with right spin';
+  if (sidespin < 0) return ' with left spin';
+  return '';
 }
 
 function entryPhrase(entryDeg: number | null, margin: number): string {
@@ -45,7 +51,7 @@ export function explainShot(
     // Final ball: a Route chosen for safety (no next window to play for), so the
     // cue ball is left clear of a scratch rather than positioned.
     const safe = shot.type
-      ? ` ${typePhrase(shot.type)}${railsPhrase(shot.rails)} — a soft pot that keeps the cue ball off a scratch.`
+      ? ` ${typePhrase(shot.type)}${spinPhrase(shot.sidespin)}${railsPhrase(shot.rails)} — a soft pot that keeps the cue ball off a scratch.`
       : '';
     return `${intro} Pot ${pct(shot.potProb)} — finish the rack.${safe}`;
   }
@@ -70,7 +76,7 @@ export function explainShot(
           : `the zone (${Math.round(shot.zoneLen)}″ of the path lies inside it`;
       zone = ` — ${size}${entryPhrase(shot.entryDeg, margin)})`;
     }
-    route = `${typePhrase(shot.type)}${railsPhrase(shot.rails)} sends the cue ball into position for the ${next.ball.num}${zone}.`;
+    route = `${typePhrase(shot.type)}${spinPhrase(shot.sidespin)}${railsPhrase(shot.rails)} sends the cue ball into position for the ${next.ball.num}${zone}.`;
   }
   return `${intro} ${route} Pot ${pct(shot.potProb)}, position ${pct(shot.eNext ?? 0)}.`;
 }
