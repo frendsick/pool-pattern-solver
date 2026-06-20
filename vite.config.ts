@@ -9,7 +9,6 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icons/*.png'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
       },
@@ -20,7 +19,6 @@ export default defineConfig({
           'Random late-rack 9-ball layouts, solved for the best run-out pattern.',
         start_url: '/',
         display: 'standalone',
-        orientation: 'any',
         theme_color: '#20242a',
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
