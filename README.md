@@ -24,6 +24,38 @@ npm run build   # type-check + production bundle
 The current layout's seed is kept in the URL hash (`#s=12345`), so layouts
 are shareable and reproducible.
 
+## Install on a phone (offline PWA, no hosting)
+
+The app is an installable, fully-offline PWA: once installed, its service worker
+serves everything from cache, so it needs no network — local or public. The only
+trick is that a browser will only *install* it from a secure context, which we
+reach locally instead of by hosting it. See
+[docs/adr/0007](./docs/adr/0007-installable-offline-pwa-no-hosting.md) for why.
+
+### Android (USB, no certificates)
+
+`localhost` is a secure context, and `adb reverse` maps the phone's localhost to
+your machine — so no HTTPS or certificate is needed.
+
+```sh
+npm run build
+npm run preview                       # serves dist/ at http://localhost:4173
+adb reverse tcp:4173 tcp:4173         # phone (USB, debugging on) → your laptop
+```
+
+On the phone, open `http://localhost:4173` in Chrome → menu → **Install app**.
+After it installs you can unplug; it runs full-screen and offline from the home
+screen. To ship a new version: rebuild, re-run the two commands above, reopen the
+installed app — the `autoUpdate` service worker swaps its cache on next launch.
+
+### iOS (local HTTPS over Wi-Fi)
+
+iOS has no `adb` and needs HTTPS for an offline service worker. Generate a locally
+trusted cert with [`mkcert`](https://github.com/FiloSottile/mkcert), serve over
+Wi-Fi, and trust the mkcert root CA on the phone (Settings → General → VPN &
+Device Management, then enable full trust under Certificate Trust Settings). Then
+open `https://<laptop-ip>:4173` in Safari → Share → **Add to Home Screen**.
+
 ## How it works
 
 - **Generator** (`src/generator.ts`) — rejection-samples object-ball

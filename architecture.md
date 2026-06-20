@@ -4,7 +4,11 @@ A 9-ball pattern-play trainer. It **generates** a random late-rack layout, **sol
 for the highest run-out-probability pattern, and **renders** it as a top-down table
 diagram with pie-shaped position windows and arrowed cue-ball routes. The whole thing
 is a static client-side app (Vite + TypeScript, no backend); the solver runs in the
-browser.
+browser. It ships as an installable, fully-offline **PWA** (`vite-plugin-pwa` precaches
+every build asset) — installed onto a phone over a local transport rather than hosted
+(Android: USB + `adb reverse` to `localhost`; iOS: local HTTPS), and on phones the table
+goes full-screen, rotating to fill portrait via CSS + a `getScreenCTM` pointer mapping.
+See `docs/adr/0007-installable-offline-pwa-no-hosting.md`.
 
 For domain vocabulary (Pattern, Layout, Position Window, Route, Shot Type, Run-out
 Probability, …) see `CONTEXT.md`. For the load-bearing design decisions see `docs/adr/`.
