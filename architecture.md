@@ -6,8 +6,9 @@ diagram with pie-shaped position windows and arrowed cue-ball routes. The whole 
 is a static client-side app (Vite + TypeScript, no backend); the solver runs in the
 browser. It ships as an installable, fully-offline **PWA** (`vite-plugin-pwa` precaches
 every build asset) — installed onto a phone over a local transport rather than hosted
-(Android: USB + `adb reverse` to `localhost`; iOS: local HTTPS), and on phones the table
-goes full-screen, rotating to fill portrait via CSS + a `getScreenCTM` pointer mapping.
+(Android: USB + `adb reverse` to `localhost`; iOS: local HTTPS), and on phones the layout
+stacks into a column (caption / table / controls) with the table kept in its landscape
+orientation, via CSS + a `getScreenCTM` pointer mapping.
 See `docs/adr/0007-installable-offline-pwa-no-hosting.md`.
 
 For domain vocabulary (Pattern, Layout, Position Window, Route, Shot Type, Run-out

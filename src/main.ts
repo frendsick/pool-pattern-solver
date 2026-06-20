@@ -272,10 +272,9 @@ function stopPlayback(): void {
 function pointerToTable(e: PointerEvent): Vec | null {
   const svg = el.table.querySelector('svg');
   if (!svg) return null;
-  // getScreenCTM maps SVG user units → screen px including any CSS transform on the
-  // element, so inverting it makes drag correct even when the table is rotated 90°
-  // for portrait phones (see the mobile @media rules). getBoundingClientRect math
-  // would break under that rotation.
+  // getScreenCTM maps SVG user units → screen px including any CSS transform/scaling
+  // on the element, so inverting it keeps drag correct under the contained, centered
+  // sizing the mobile layout uses — and would survive any future transform too.
   const ctm = svg.getScreenCTM();
   if (!ctm) return null;
   const local = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());

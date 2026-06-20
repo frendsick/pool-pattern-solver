@@ -14,12 +14,14 @@ local `vite preview`; **iOS** later via local HTTPS over Wi-Fi with a trusted `m
 root CA (no `adb` equivalent, and iOS needs HTTPS for an offline service worker). The
 app code is identical for both — only the first-load transport differs.
 
-On phones the table goes full-screen in both orientations. We do this with **CSS**: a
-`pointer: coarse` media query for full-screen + a translucent bottom overlay for the
-controls, and an `orientation: portrait` rule that `transform: rotate`s the SVG so the
-2:1 table fills the screen. Drag stays correct across the rotation by mapping pointer
-coordinates through `svg.getScreenCTM().inverse()` instead of `getBoundingClientRect`
-math — so `render.ts`/`svgToTablePoint` are untouched and desktop is unaffected.
+On phones the layout becomes a single column with **CSS** (gated on `pointer: coarse`,
+so desktop is untouched): the table keeps its desktop landscape orientation and is
+contained to fill the leftover height, the controls sit in a normal block below it, and
+the explanation caption sits above it — shown only when the viewport is tall enough
+(`min-height`) to fit it without crowding the table. Drag stays correct under the
+contained/centered scaling by mapping pointer coordinates through
+`svg.getScreenCTM().inverse()` instead of `getBoundingClientRect` math, so
+`render.ts`/`svgToTablePoint` are untouched.
 
 ## Considered Options
 
@@ -37,8 +39,7 @@ math — so `render.ts`/`svgToTablePoint` are untouched and desktop is unaffecte
 
 - There is no deploy/hosting step and no public URL — "ship a new version" means
   re-tether, reload, and let the `autoUpdate` service worker swap its precache.
-- The mobile full-screen/rotate behavior is render-pure: it lives entirely in CSS +
-  the pointer-mapping change, so the headless snapshot tool and desktop layout are
-  unchanged.
+- The mobile layout is render-pure: it lives entirely in CSS + the pointer-mapping
+  change, so the headless snapshot tool and desktop layout are unchanged.
 - iOS is a deliberate follow-up, not parity at launch — Android (USB-localhost) is the
   first-class path because it needs no certificates.
