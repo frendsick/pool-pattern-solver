@@ -6,7 +6,7 @@ import { BALL_R } from './table';
 import { previewLegFromCue, solveFromCue } from './solver';
 import type { Pattern, PlannedShot } from './solver';
 import { originWindowForStep, sceneForStep } from './scene';
-import { renderScene, svgToTablePoint, VIEW_H, VIEW_W } from './render';
+import { renderScene, svgToTablePoint } from './render';
 import type { Scene } from './render';
 import { buildPlayback } from './playback';
 import type { ShotPlayback } from './playback';
@@ -272,11 +272,11 @@ function stopPlayback(): void {
 function pointerToTable(e: PointerEvent): Vec | null {
   const svg = el.table.querySelector('svg');
   if (!svg) return null;
-  const rect = svg.getBoundingClientRect();
-  if (rect.width <= 0 || rect.height <= 0) return null;
-  const svgX = ((e.clientX - rect.left) * VIEW_W) / rect.width;
-  const svgY = ((e.clientY - rect.top) * VIEW_H) / rect.height;
-  return svgToTablePoint({ x: svgX, y: svgY });
+  // getScreenCTM includes CSS scaling; invert it to map screen px → SVG units.
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const local = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+  return svgToTablePoint({ x: local.x, y: local.y });
 }
 
 function currentObjectBalls(index: number) {
