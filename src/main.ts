@@ -16,7 +16,6 @@ import {
   pointInPolygons,
   wholeTablePolygon,
 } from './interaction';
-import { openingPatternFromCue } from './opening-validity';
 
 const MIN_BALLS = 2;
 const MAX_BALLS = 9;
@@ -325,8 +324,8 @@ function commitOpeningCue(cue: Vec, targetStep: number): boolean {
     showStatus(`<strong>Invalid placement.</strong> The cue ball overlaps another ball${returned}.`);
     return false;
   }
-  const pattern = openingPatternFromCue(puzzle.layout, INTERMEDIATE, cue);
-  if (!pattern) {
+  const pattern = solveFromCue(puzzle.layout, INTERMEDIATE, 0, cue);
+  if (!pattern || pattern.score <= 0) {
     showStatus(`<strong>Invalid placement.</strong> No complete run-out from there${returned}.`);
     return false;
   }
@@ -503,8 +502,9 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowRight') el.next.click();
 });
 
-const hashSeed = /s=(\d+)/.exec(window.location.hash)?.[1];
-const hashBalls = /n=(\d+)/.exec(window.location.hash)?.[1];
+const hash = new URLSearchParams(window.location.hash.slice(1));
+const hashSeed = hash.get('s');
+const hashBalls = hash.get('n');
 if (hashBalls) {
   const n = Number(hashBalls);
   if (n >= MIN_BALLS && n <= MAX_BALLS) el.ballCount.value = String(n);

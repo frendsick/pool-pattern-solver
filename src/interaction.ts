@@ -1,4 +1,4 @@
-import { Vec, add, clamp, dist, distPointSegment, scale, sub } from './geometry';
+import { Vec, add, clamp, dist, scale, sub } from './geometry';
 import { Ball, BALL_R, MAX_X, MAX_Y, MIN_X, MIN_Y, onTable } from './table';
 
 const EPS = 0.01;
@@ -88,15 +88,4 @@ export function legalCuePosition(p: Vec, balls: Ball[]): boolean {
 
 export function pointInPolygons(p: Vec, polygons: Vec[][]): boolean {
   return polygons.some((poly) => pointInPolygon(p, poly));
-}
-
-export function distanceToPolygons(p: Vec, polygons: Vec[][]): number {
-  if (pointInPolygons(p, polygons)) return 0;
-  let best = Infinity;
-  for (const poly of polygons) {
-    for (let i = 0; i < poly.length; i++) {
-      best = Math.min(best, distPointSegment(p, poly[i], poly[(i + 1) % poly.length]));
-    }
-  }
-  return best;
 }

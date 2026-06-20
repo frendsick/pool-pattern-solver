@@ -35,12 +35,11 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
 | `solver.ts` | 464 | Beam search over Patterns. `solve`, `solveFromCue`, `previewLegFromCue`, `expandNodes`, `finalize`. The orchestrator. | `geometry`, `table`, `shots`, `skill`, `zone`, `value`, `route`, `seed`, `explain` |
 | `explain.ts` | 65 | Turns a `PlannedShot` into one human-readable sentence. | `geometry`, `shots`, `skill`, `solver`(types) |
 | `generator.ts` | 110 | Solver-validated layout generation: rejection-sample positions, `solve`, accept on score. `mulberry32` seeded RNG. | `geometry`, `table`, `skill`, `solver`, `shots` |
-| `opening-validity.ts` | 18 | Validate/solve from a player-placed opening cue position (`openingPatternFromCue`). | `geometry`, `skill`, `table`, `interaction`, `solver`, `value` |
 | `interaction.ts` | 102 | Hit-testing & clamping for drag: point-in-polygon, legal cue position, `wholeTablePolygon`. | `geometry`, `table` |
 | `scene.ts` | 162 | Builds a `Scene` (one Pattern step) for the renderer: gathers window polygons, paths, ghosts. Shared by app and snapshot tool. | `geometry`, `table`, `skill`, `solver`, `zone`, `render`, `interaction` |
 | `render.ts` | 199 | Pure SVG renderer + `svgToTablePoint` inverse mapping. No DOM events. | `geometry`, `table` |
 | `playback.ts` | 165 | Kinematic shot replay (ADR-0006): maps animation time `t` to ball positions along the solver's already-traced geometry under one rolling-friction constant. Pure, no DOM/time. | `geometry`, `shots`, `solver`(types) |
-| `main.ts` | 407 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), the per-shot `requestAnimationFrame` playback loop, calls scene/render. | `skill`, `generator`, `geometry`, `table`, `solver`, `scene`, `render`, `playback`, `interaction`, `opening-validity` |
+| `main.ts` | 407 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), the per-shot `requestAnimationFrame` playback loop, calls scene/render. | `skill`, `generator`, `geometry`, `table`, `solver`, `scene`, `render`, `playback`, `interaction` |
 
 ### Dependency layering
 
@@ -62,11 +61,11 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
         seed    │
             ╲   │
             solver              (beam search — orchestrator) ── explain
-            ╱      ╲
-   generator        opening-validity
-   (build layout)   (player cue placement)
-                         │
-        ┌──────────┬─────┴────┬───────────┐
+            │
+        generator
+        (build layout)
+            │
+        ┌───┴──────┬──────────┬───────────┐
      scene ──    playback   interaction   main  (browser app: events, lifecycle)
        render
 ```
@@ -225,7 +224,7 @@ main.ts (DOM ready)
        tool is unaffected.
 
    Interaction (drag):                              [interaction.ts + main.ts]
-     • Opening cue drag  ─► openingPatternFromCue()  [opening-validity.ts]
+     • Opening cue drag  ─► legalCuePosition() + solveFromCue(..., 0, cue)
             re-solves the whole Pattern from a player-placed ball in hand.
      • Alternative-leave drag (mid-rack) ─► clamp to drawn window;
             live previewLegFromCue() while dragging; on release

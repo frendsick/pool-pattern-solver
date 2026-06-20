@@ -406,25 +406,10 @@ but they affect how users reach and inspect solver decisions:
   opening Ball in Hand interaction. The first-look layout accepts a click/tap
   as an exact player-placed Ball in Hand; once a cue ball is visible, whether
   solver-placed or player-placed, dragging it adjusts that exact opening
-  placement and re-solves the active Pattern on release. When adjusting an
-  opening Ball in Hand placement, the UI may show a table validity overlay
-  highlighting exact opening placements that can produce a complete Pattern.
-  It uses the same visual language as existing possible-area highlights. This
-  overlay stays hidden on the bare first-look layout and only appears after an
-  opening cue ball has already been spotted. The validity map begins computing
-  in the background immediately after a new Layout has been generated, so
-  placement controls stay responsive and the map is likely ready by the time
-  the player adjusts the cue ball. It is in-memory state for the current
-  Layout only; starting a new Layout cancels any in-progress computation and
-  discards the old map. The map is sampled guidance: samples are clipped to
-  legal cue-ball centers and marked only when an exact solve from that sample
-  finds a complete Pattern. Click and drag release still solve the exact cue
-  position. Failed opening placements are non-destructive: they keep the
-  current Pattern and step, with a short failure caption.
-- [src/opening-validity.ts](../src/opening-validity.ts): sampled valid-start
-  guidance for opening Ball in Hand. `OPENING_VALIDITY_STEP` controls the
-  sampling pitch; each legal sample is checked with the same exact
-  `solveFromCue(..., 0, cue)` entry point used by click and drag release.
+  placement and re-solves the active Pattern on release. The opening placement
+  path stays in `main.ts`: validate the cue with `legalCuePosition`, then call
+  `solveFromCue(..., 0, cue)`. Failed opening placements are non-destructive:
+  they keep the current Pattern and step, with a short failure caption.
 - [src/scene.ts](../src/scene.ts): step semantics, zone display radius,
   primary-zone cap from `windowRef`, and second-choice pocket expansion. Reads
   the resolved `PlannedShot.zone` (and its own obstacles/gate for the alternate
