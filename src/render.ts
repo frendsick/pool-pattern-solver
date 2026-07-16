@@ -5,13 +5,8 @@
 import { Vec } from './geometry';
 import { TABLE_W, TABLE_H, BALL_R, POCKETS, Ball } from './table';
 
-export const SVG_SCALE = 9; // px per inch
-export const RAIL_INCHES = 5; // rail width, inches
-export const VIEW_W = (TABLE_W + 2 * RAIL_INCHES) * SVG_SCALE;
-export const VIEW_H = (TABLE_H + 2 * RAIL_INCHES) * SVG_SCALE;
-
-const S = SVG_SCALE;
-const RAIL = RAIL_INCHES;
+const S = 9; // px per inch
+const RAIL = 5; // rail width, inches
 
 export interface SceneShot {
   cuePos: Vec;
@@ -44,15 +39,15 @@ const Y = (v: number) => px(TABLE_H - v + RAIL); // flip y so +y is up
 
 export function tableToSvgPoint(p: Vec): Vec {
   return {
-    x: (p.x + RAIL_INCHES) * SVG_SCALE,
-    y: (TABLE_H - p.y + RAIL_INCHES) * SVG_SCALE,
+    x: (p.x + RAIL) * S,
+    y: (TABLE_H - p.y + RAIL) * S,
   };
 }
 
 export function svgToTablePoint(p: Vec): Vec {
   return {
-    x: p.x / SVG_SCALE - RAIL_INCHES,
-    y: TABLE_H + RAIL_INCHES - p.y / SVG_SCALE,
+    x: p.x / S - RAIL,
+    y: TABLE_H + RAIL - p.y / S,
   };
 }
 
@@ -141,8 +136,8 @@ function tableBase(): string {
 }
 
 export function renderScene(scene: Scene): string {
-  const w = VIEW_W;
-  const h = VIEW_H;
+  const w = (TABLE_W + 2 * RAIL) * S;
+  const h = (TABLE_H + 2 * RAIL) * S;
   const defs =
     `<marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d63a3a"/></marker>` +
     `<marker id="arrowDark" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>`;

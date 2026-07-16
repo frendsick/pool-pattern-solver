@@ -278,10 +278,6 @@ function pointerToTable(e: PointerEvent): Vec | null {
   return svgToTablePoint({ x: local.x, y: local.y });
 }
 
-function currentObjectBalls(index: number) {
-  return puzzle ? puzzle.layout.balls.slice(index) : [];
-}
-
 function previewForCue(index: number, cue: Vec): PlannedShot | null {
   if (!puzzle || !activePattern) return null;
   const targetZone = activePattern.shots[index]?.zone;
@@ -290,7 +286,7 @@ function previewForCue(index: number, cue: Vec): PlannedShot | null {
 }
 
 function clampedAlternativeCue(index: number, p: Vec, originZone: Vec[][]): Vec {
-  return clampCuePosition(p, originZone, currentObjectBalls(index));
+  return clampCuePosition(p, originZone, puzzle ? puzzle.layout.balls.slice(index) : []);
 }
 
 function clampedOpeningCue(p: Vec): Vec {
@@ -306,12 +302,8 @@ function continuationPrefix(index: number): number {
   return activePattern.score / base.score;
 }
 
-function openingCueIsVisible(): boolean {
-  return step === 1 || step === 2;
-}
-
 function pointerHitsOpeningCue(p: Vec): boolean {
-  if (!activePattern || !openingCueIsVisible()) return false;
+  if (!activePattern || (step !== 1 && step !== 2)) return false;
   return dist(p, activePattern.shots[0].cuePos) <= BALL_R * 2.2;
 }
 

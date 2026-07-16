@@ -379,7 +379,7 @@ function scanFan(
   maxRadius: number,
   visit: (v: number) => void,
 ): void {
-  const aimBack = rayDir(z); // direction away from pocket
+  const aimBack = norm(sub(z.ball, z.pocket.target)); // direction away from pocket
   const halfFan = Math.min(skill.maxCut, (78 * Math.PI) / 180);
   const steps = 36;
   const inner = 2 * BALL_R + 0.3;
@@ -451,7 +451,7 @@ function buildWindows(
   excludeRailBand: boolean,
   landing?: Vec,
 ): Vec[][] | null {
-  const aimBack = rayDir(z); // direction away from pocket
+  const aimBack = norm(sub(z.ball, z.pocket.target)); // direction away from pocket
   const halfFan = Math.min(skill.maxCut, (78 * Math.PI) / 180);
   const inner = 2 * BALL_R + 0.3;
   const ghost = zoneGhost(z);
@@ -625,11 +625,4 @@ function openAngular(m: Uint8Array[], ni: number, nj: number, rays: number): Uin
     }
   }
   return out;
-}
-
-function rayDir(z: ZoneContext): Vec {
-  const dx = z.ball.x - z.pocket.target.x;
-  const dy = z.ball.y - z.pocket.target.y;
-  const l = Math.hypot(dx, dy) || 1;
-  return { x: dx / l, y: dy / l };
 }

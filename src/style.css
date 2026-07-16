@@ -147,12 +147,6 @@ button.secondary {
   min-height: 56px;
 }
 
-footer {
-  margin-top: 22px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
 /* ---- Mobile: landscape table that fills the screen, stacked column ---------- */
 /* Gated on `pointer: coarse` so desktop (even in a narrow window) is untouched.   */
 /* Layout is a single column: caption on top (tall screens only), the table in the */
@@ -169,8 +163,7 @@ footer {
   }
 
   /* Strip the page chrome so the table owns the middle of the screen. */
-  header,
-  footer {
+  header {
     display: none;
   }
 

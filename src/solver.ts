@@ -175,15 +175,7 @@ export function expandNodes(
 ): Node[] {
   const targets = zoneTargets(balls, m, surfaces, skill);
   const { obstacles: laterPos } = zoneInputsForBall(balls, m, surfaces);
-  const nextBall = balls[m];
-  // Strict pass first: every pocket held to the best pocket's bar. Only when
-  // nothing clears it (the good pocket is unreachable from every node) do the
-  // per-pocket fallback bars get a turn, so the layout still solves.
-  for (const lenient of [false, true]) {
-    const children = expandPass(nodes, nextBall, laterPos, targets, skill, lenient);
-    if (children.length > 0 || lenient) return children;
-  }
-  return [];
+  return expandToTargets(nodes, balls[m], laterPos, targets, skill);
 }
 
 function expandPass(
