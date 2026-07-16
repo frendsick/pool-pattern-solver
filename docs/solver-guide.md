@@ -455,6 +455,14 @@ but they affect how users reach and inspect solver decisions:
 If a presentation parameter starts feeding back into scoring or candidate
 selection, move it into the relevant solver section above.
 
+## Golden Scenarios
+
+Golden Scenarios are hand-built fixtures in
+[tests/golden.test.ts](../tests/golden.test.ts) that encode a known-correct
+Pattern or pattern-play principle reconstructed from the source articles.
+Treat a failure as a solver-behavior regression to investigate, not expected
+threshold churn during calibration.
+
 ## Common Change Checklist
 
 Before editing solver behavior:
