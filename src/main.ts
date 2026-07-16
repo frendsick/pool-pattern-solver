@@ -134,8 +134,9 @@ function renderCurrent(): void {
     step === 0 ? 'Layout' : step === 1 ? 'Overview' : `Shot ${step - 1} of ${n}`;
   const reach = drag?.kind === 'alternative' ? drag.preview?.eNext ?? null : null;
   el.score.textContent =
-    `Run-out ~${Math.round(activePattern.score * 100)}%` +
-    (reach === null ? '' : ` · leg reach ~${Math.round(reach * 100)}%`);
+    drag?.kind === 'alternative'
+      ? reach === null ? 'No live route' : `Leg reach ~${Math.round(reach * 100)}%`
+      : `Run-out ~${Math.round(activePattern.score * 100)}%`;
   updateControls();
 }
 
