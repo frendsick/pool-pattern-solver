@@ -1,4 +1,4 @@
-// Golden Scenarios (see CONTEXT.md): principle checks reconstructed from the
+// Golden Scenarios: principle checks reconstructed from the
 // knowledgebase articles. The solver must agree with what the articles teach.
 
 import { describe, it, expect } from 'vitest';

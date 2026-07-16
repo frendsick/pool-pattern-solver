@@ -3,16 +3,16 @@
 A 9-ball pattern-play trainer. It **generates** a random late-rack layout, **solves**
 for the highest run-out-probability pattern, and **renders** it as a top-down table
 diagram with pie-shaped position windows and arrowed cue-ball routes. The whole thing
-is a static client-side app (Vite + TypeScript, no backend); the solver runs in the
+is a static client-side app (Vite + TypeScript, no backend). The solver runs in the
 browser. It ships as an installable, fully-offline **PWA** (`vite-plugin-pwa` precaches
-every build asset) — installed onto Android over USB + `adb reverse` to `localhost`
+every build asset). It is installed onto Android over USB + `adb reverse` to `localhost`
 rather than hosted, and on phones the layout
 stacks into a column (caption / table / controls) with the table kept in its landscape
 orientation, via CSS + a `getScreenCTM` pointer mapping.
 See `docs/adr/0007-installable-offline-pwa-no-hosting.md`.
 
 For domain vocabulary (Pattern, Layout, Position Window, Route, Shot Type, Run-out
-Probability, …) see `CONTEXT.md`. For the load-bearing design decisions see `docs/adr/`.
+Probability, etc.) see `CONTEXT.md`. For the load-bearing design decisions see `docs/adr/`.
 This file is about *how the modules fit together*.
 
 ---
@@ -24,10 +24,10 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
 
 | Module | Lines | Responsibility | Imports (project) |
 | --- | --- | --- | --- |
-| `geometry.ts` | 71 | 2D vector math, ray/segment-circle intersection, reflection. Pure, leaf. | — |
+| `geometry.ts` | 71 | 2D vector math, ray/segment-circle intersection, reflection. Pure, leaf. | None |
 | `table.ts` | 106 | Table dimensions, pockets, `Ball`/`Layout` types, `effectiveAcceptance`, `onTable`. | `geometry` |
 | `shots.ts` | 388 | Idealized cue-ball model (ADR-0001/0003): the 5 shot types, 30°-rule carom path, rail rebound, `tracePath`, `caromLocus`, `caromCurve`, obstacle/scratch clearance. | `geometry`, `table` |
-| `skill.ts` | 487 | Skill Profile (ADR-0002): every probability — P(pot) vs cut/distance, max cut, landing-spread sigmas, type reliability. `INTERMEDIATE` is the shipped profile. | `geometry`, `table`, `shots` |
+| `skill.ts` | 487 | Skill Profile (ADR-0002): P(pot) vs cut/distance, max cut, landing-spread sigmas, and type reliability. `INTERMEDIATE` is the shipped profile. | `geometry`, `table`, `shots` |
 | `zone.ts` | 631 | Position Window: the `zoneValue` scoring field + `zonePolygons` render approximation. `zoneContext`, `zonePeak`, `zoneBar`, rail-band/proximity logic. | `geometry`, `table`, `shots`, `skill` |
 | `value.ts` | 166 | Backward value surfaces (ADR-0004): `V_k` rasters built from the 9 down, the shared onward-control gate (`gateFor`, `surfacesForLayout`, `zoneInputsForBall`). | `geometry`, `table`, `skill`, `zone` |
 | `route.ts` | 701 | Route exploration & scoring: `zoneTargets`, `routeCandidates` (fast prune), `expectedNextPot` (landing-spread quadrature), `pocketRisk`, `clearanceRisk`, `finalSafetyRoute` (the final ball's no-scratch pot). | `geometry`, `table`, `shots`, `skill`, `zone`, `value` |
@@ -60,7 +60,7 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
             ╱   │
         seed    │
             ╲   │
-            solver              (beam search — orchestrator) ── explain
+            solver              (beam-search orchestrator) ── explain
             │
         generator
         (build layout)
@@ -75,7 +75,7 @@ solved Pattern, but it produces ball *positions over time* rather than a static
 Scene. `main.ts` feeds those positions back through `render.ts` each frame.
 
 Arrows point from a module to the ones it depends on (read top→down = "is built on").
-`solver.ts` is the hub: the lower half (geometry…route) is the scoring engine,
+`solver.ts` is the hub: the lower half (geometry through route) is the scoring engine,
 the upper half (generator/scene/render/main) is consumption.
 
 ---
@@ -95,19 +95,19 @@ scoring each leg against those backward surfaces.
  solve(layout, skill)                                            [solver.ts]
  │
  │ ── 1. BACKWARD PASS ───────────────────────────────────────  [value.ts]
- │    surfacesForLayout: build V_9, V_8, … V_1 by induction.
+ │    surfacesForLayout: build V_9, V_8, ... V_1 by induction.
  │    V_k(p) = how good cue-ball position p is for SHOOTING ball k,
  │            = P(pot k from p) · onward-control gate against V_{k+1}
  │    V_9 is pot-only. Each surface normalized to its own peak.
  │    (Every window the forward search sees is already gated by the
- │     whole tail of the rack — ADR-0004.)
+ │     whole tail of the rack, ADR-0004.)
  │
- │            V_9  ◄──gates── V_8  ◄──gates── V_7 ◄─ … ─◄ V_1
+ │            V_9  ◄──gates── V_8  ◄──gates── V_7 ◄─ ... ─◄ V_1
  │           (pot only)
  │
  │ ── 2. SEED (ball in hand) ─────────────────────────────────  [seed.ts]
  │    initialNodes: for each open pocket on ball 1, lay an angle×distance
- │    grid of cue placements, PLUS alignedCuts — solved cut angles whose
+ │    grid of cue placements, PLUS alignedCuts, solved cut angles whose
  │    carom path runs along ball 2's shot line. Each placement that can
  │    pot ball 1 becomes a search Node {score, sortKey, done:[], pending}.
  │
@@ -120,7 +120,7 @@ scoring each leg against those backward surfaces.
  │       │       │
  │       │       ▼
  │       │  routeCandidates(...)   per node: enumerate pocket × shot type [route.ts]
- │       │       │                 × travel; FAST prune by zone merit.    [shots.ts]
+ │       │       │                 × travel, FAST prune by zone merit.    [shots.ts]
  │       │       │                 Held to best pocket's 80% bar (strict),
  │       │       │                 per-pocket fallback only if nothing clears.
  │       │       ▼
@@ -135,7 +135,7 @@ scoring each leg against those backward surfaces.
  │       │       ▼
  │       │  child.score   = parent.score × eNext × risk
  │       │  child.sortKey = score × complexityDiscount × alignBoost
- │       │                  (sortKey ranks; score is the REPORTED prob)
+ │       │                  (sortKey ranks, score is the REPORTED prob)
  │       │       │
  │       │       ▼
  │       │  keep top BEAM (40) children → next generation
@@ -146,11 +146,11 @@ scoring each leg against those backward surfaces.
  │    nodes[0] is the winner. Append the last shot (no onward window).
  │    finalSafetyRoute: the final ball has no next window, so its Route   [route.ts]
  │       is the open pocket x shot type maximizing P(pot) x P(no scratch)
- │       at minimal natural travel — scratch priced by pocketRisk, folded
+ │       at minimal natural travel, scratch priced by pocketRisk, folded
  │       into Pattern.score (an all-scratch 9 collapses the leg).
  │    resolveShotZones: re-derive each shot's Position Window from the
  │       shared backward surfaces so renderer + explanation use the SAME
- │       zone the route was scored against; remeasure zoneLen/entryDeg.
+ │       zone the route was scored against, remeasure zoneLen/entryDeg.
  │    explainShot: one sentence per shot.                        [explain.ts]
  │
  ▼
@@ -166,7 +166,7 @@ P(this leg) = P(pot k)                         ◄ skill.ts: cut angle + distanc
             × P(reach k+1's window)             ◄ route.ts expectedNextPot:
                 = ∫ over landing distribution        landing spread = speed σ ⊕ carom-direction σ
                     zoneValue(landing, next) dL       gated by next window (zone.ts)
-              × type ease                        ◄ skill.ts: stop 0.99 … draw 0.85, draw rail-room
+              × type ease                        ◄ skill.ts: stop 0.99 ... draw 0.85, draw rail-room
               × windowFactor                     ◄ relative quality bar (80% of best effective)
             × pocketRisk × clearanceRisk          ◄ route.ts: scratch / thread-the-needle penalties
 
@@ -175,7 +175,7 @@ Pattern score = Π over all legs  (this is Run-out Probability, the maximand)
 
 `sortKey` (used only for ranking inside the beam) multiplies in a `complexityDiscount`
 (prefer simpler routes on near-ties) and `alignBoost` (prefer entries along the next
-shot line). These never appear in the reported score — that stays an honest probability.
+shot line). These never appear in the reported score. That stays an honest probability.
 
 ---
 
@@ -190,7 +190,7 @@ generatePuzzle(seed, ballCount, skill)                          [generator.ts]
        pattern = solve(layout, skill)           ← full solver above
        if pattern.score ≥ minScore: return      (minScore = perShot ^ ballCount)
        else keep best-so-far
-   return best                                  never fail; degrade to best sub-threshold
+   return best                                  never fail: degrade to best sub-threshold
 ```
 
 A Layout is only ever shown to the player if the solver found a complete Pattern for
@@ -219,28 +219,28 @@ main.ts (DOM ready)
        cuePos→ghost, then concurrent object-ball-to-pocket + cue carom along
        `path` to `landing`, under one friction-decel constant. Plays once, then
        auto-advances one step to the next shot's static diagram (overlays
-       restored); the final shot stays frozen on its leave. render.ts/scene.ts
+       restored). The final shot stays frozen on its leave. render.ts/scene.ts
        are untouched (the bare Scene is assembled in main.ts), so the snapshot
        tool is unaffected.
 
    Interaction (drag):                              [interaction.ts + main.ts]
      • Opening cue drag  ─► legalCuePosition() + solveFromCue(..., 0, cue)
             re-solves the whole Pattern from a player-placed ball in hand.
-     • Alternative-leave drag (mid-rack) ─► clamp to drawn window;
-            live previewLegFromCue() while dragging; on release
+     • Alternative-leave drag (mid-rack) ─► clamp to drawn window,
+            live previewLegFromCue() while dragging, on release
             solveFromCue() re-solves the remainder (forks the Pattern).
      svgToTablePoint() maps pointer px → table inches (render.ts inverse).
 ```
 
 `scene.ts` and `render.ts` are pure (no DOM events) so the snapshot tool
-(`scripts/snapshot.ts`) reuses them headlessly; `main.ts` owns all event wiring.
+(`scripts/snapshot.ts`) reuses them headlessly. `main.ts` owns all event wiring.
 
 ---
 
 ## Key invariants & where they live
 
 - **One Position Window, two representations.** `zoneValue` (scoring field, `zone.ts`)
-  and `zonePolygons` (drawn polygon) must agree; disagreement is a bug, not a second
+  and `zonePolygons` (drawn polygon) must agree. Disagreement is a bug, not a second
   concept. The forward search and the renderer gate against the *same* backward
   surfaces (`value.ts`).
 - **Backward from the 9** (ADR-0004): onward control is `V_{k+1}` gating `V_k`, never
@@ -248,7 +248,7 @@ main.ts (DOM ready)
 - **Score is an honest probability.** Ranking-only nudges (`complexityDiscount`,
   `alignBoost`, proximity tie-breaks) live in `sortKey`, never in `Pattern.score`.
 - **Strict-then-lenient passes** keep every pocket to the best pocket's 80% bar, and
-  only fall back to per-pocket bars when nothing clears it — so layouts still solve
+  only fall back to per-pocket bars when nothing clears it. This lets layouts solve
   without letting the hardest shot prune an easy natural one.
 - **Skill is one swap point** (ADR-0002): every probability flows from a `SkillProfile`,
   so a difficulty slider is a pure profile change.

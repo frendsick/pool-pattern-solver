@@ -76,4 +76,4 @@ odd explanations before the safety value is well calibrated.
   route shapes, but it should not be used to predict exact multi-rail spin
   physics.
 - ADR-0001 remains accepted for the idealized cue-ball model and the rejection
-  of a physics engine; this ADR amends only its deferred-sidespin limitation.
+  of a physics engine. This ADR amends only its deferred-sidespin limitation.

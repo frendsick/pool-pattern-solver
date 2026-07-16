@@ -18,7 +18,7 @@ Rules for commits, branches, and pull requests in this repo.
 
 - MUST NOT modify `main` directly. All work happens on a feature branch.
 - MUST use conventional prefixes: `feat/`, `refactor/`, `fix/`, etc. This applies
-  to worktree branches too — rename away from the `worktree-` default before pushing.
+  to worktree branches too. Rename away from the `worktree-` default before pushing.
 
 ## Workflow
 
