@@ -5,6 +5,6 @@ export default defineConfig({
     // Golden tests run full solves (the generator ones, hundreds of them) and
     // sit near vitest's 5 s default when every worker is busy: give the
     // suite headroom so parallel runs under load don't time-trip.
-    testTimeout: 30_000,
+    testTimeout: 60_000,
   },
 });

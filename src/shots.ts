@@ -272,6 +272,7 @@ const SHORT_RAIL_DIAMOND = TABLE_H / 4;
 function rebound(dir: Vec, wall: 'x' | 'y', sidespin: Sidespin): Vec {
   const mirrored = reflect(dir, wall);
   if (sidespin === 0) return mirrored;
+  // ponytail: rebound-only heuristic; track spin/speed state if multi-rail fidelity matters.
   const tangent = wall === 'x' ? { x: 0, y: 1 } : { x: 1, y: 0 };
   const rightOfTravel = rotate(dir, -Math.PI / 2);
   const tangentPush = dot(rightOfTravel, tangent) * sidespin;

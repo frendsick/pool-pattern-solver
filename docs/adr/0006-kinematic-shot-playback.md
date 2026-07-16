@@ -27,7 +27,7 @@ Reusing the traced geometry guarantees the video is just the diagram set in moti
   loop rebuilds a `Scene` per frame (overlays suppressed during play), so the headless
   snapshot tool is unaffected.
 - "Real-time" is a look, not a measured quantity — friction is a single tuned constant,
-  not per-shot physics. Slow-motion/scrub exist to study the carom; the motion itself
-  carries no velocity information the solver did not already imply.
+  not per-shot physics. Playback intentionally plays once at that fixed rate; add
+  slow-motion or scrubbing only when studying the carom needs it.
 - Anything the traced path omits (true collision-induced cling, throw during the roll)
   is invisible to playback, by design.

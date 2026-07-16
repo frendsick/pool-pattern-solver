@@ -385,6 +385,8 @@ These parameters control what problems the solver is asked to solve:
 
 - `CUSHION_MARGIN`, `MIN_SEPARATION`, and `POCKET_MARGIN`: random object-ball
   placement constraints.
+- `NINE_SPOT_BIAS` and `NINE_SPOT_RADIUS`: how often and how tightly the 9-ball
+  is generated near the foot spot instead of uniformly across the table.
 - Per-ball placement attempt limit inside `randomPositions`.
 - `MIN_SCORE_PER_SHOT`: generated-layout acceptance bar, scaled by ball count.
 - `MAX_TRIES`: rejection-sampling budget.
