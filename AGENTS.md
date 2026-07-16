@@ -16,7 +16,6 @@ See [architecture.md](./architecture.md) for how the modules fit together
 ## General Instructions
 
 - Never mention Claude or AI usage
-- Always use `ponytail` skill
 
 ## Agent skills
 
