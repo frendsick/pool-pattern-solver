@@ -32,10 +32,10 @@ function spinPhrase(sidespin: Sidespin): string {
 
 function entryPhrase(entryDeg: number | null, margin: number): string {
   if (entryDeg === null) return '';
-  if (entryDeg <= 35) return ' — coming into the line of the shot';
-  if (margin >= 4) return ' — a wide window, the angle of entry hardly matters';
-  if (entryDeg <= 60) return ' — entering the zone at an angle';
-  return ' — crossing the line, small margin but the best available';
+  if (entryDeg <= 35) return ', coming into the line of the shot';
+  if (margin >= 4) return ', with enough room that the entry angle hardly matters';
+  if (entryDeg <= 60) return ', entering at an angle';
+  return ', crossing the line with the best available margin';
 }
 
 export function explainShot(
@@ -51,19 +51,19 @@ export function explainShot(
     // Final ball: a Route chosen for safety (no next window to play for), so the
     // cue ball is left clear of a scratch rather than positioned.
     const safe = shot.type
-      ? ` ${typePhrase(shot.type)}${spinPhrase(shot.sidespin)}${railsPhrase(shot.rails)} — a soft pot that keeps the cue ball off a scratch.`
+      ? ` ${typePhrase(shot.type)}${spinPhrase(shot.sidespin)}${railsPhrase(shot.rails)} keeps the cue ball clear of a scratch.`
       : '';
-    return `${intro} Pot ${pct(shot.potProb)} — finish the rack.${safe}`;
+    return `${intro}${safe} Pot ${pct(shot.potProb)}. Finish the rack.`;
   }
   if (!shot.type) {
     // Narrows shot.type to non-null for the route phrasing below. Only the
     // final ball can carry a null type, and that is handled by !next above, so
     // this is effectively unreachable — but the guard keeps the types honest.
-    return `${intro} Pot ${pct(shot.potProb)} — finish the rack.`;
+    return `${intro} Pot ${pct(shot.potProb)}. Finish the rack.`;
   }
   let route: string;
   if (shot.type === 'stop') {
-    route = `Stop shot — the cue ball stays put for the ${next.ball.num}.`;
+    route = `Stop shot. The cue ball stays put for the ${next.ball.num}.`;
   } else {
     let zone = '';
     if (shot.zoneLen !== null) {
@@ -72,11 +72,11 @@ export function explainShot(
         distanceSigma(shot.type, shot.travel, shot.rails, skill, dist(shot.cuePos, shot.ghost));
       const size =
         shot.zoneLen > 40
-          ? `a wide-open zone (${Math.round(shot.zoneLen)}″ of the path lies inside it`
-          : `the zone (${Math.round(shot.zoneLen)}″ of the path lies inside it`;
-      zone = ` — ${size}${entryPhrase(shot.entryDeg, margin)})`;
+          ? `a wide-open Position Window (${Math.round(shot.zoneLen)}″ of the path lies inside it`
+          : `the Position Window (${Math.round(shot.zoneLen)}″ of the path lies inside it`;
+      zone = ` It targets ${size}${entryPhrase(shot.entryDeg, margin)}).`;
     }
-    route = `${typePhrase(shot.type)}${spinPhrase(shot.sidespin)}${railsPhrase(shot.rails)} sends the cue ball into position for the ${next.ball.num}${zone}.`;
+    route = `${typePhrase(shot.type)}${spinPhrase(shot.sidespin)}${railsPhrase(shot.rails)} sends the cue ball into position for the ${next.ball.num}.${zone}`;
   }
   return `${intro} ${route} Pot ${pct(shot.potProb)}, position ${pct(shot.eNext ?? 0)}.`;
 }

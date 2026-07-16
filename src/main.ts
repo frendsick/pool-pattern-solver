@@ -77,7 +77,7 @@ function captionForStep(
 ): string {
   if (s === 0) {
     return (
-      `<strong>Ball in hand — your turn first.</strong> No cue ball yet: ` +
+      `<strong>Ball in hand. Your turn first.</strong> No cue ball yet. ` +
       `visualize your own pattern (pockets, routes, where you would place the ` +
       `cue ball), then press <em>Next</em> to see the solver's starting position.`
     );
@@ -170,7 +170,7 @@ function newPuzzle(seed: number): void {
   const ballCount = selectedBallCount();
   stopPlayback();
   clearStatus();
-  el.caption.textContent = 'Generating layout…';
+  el.caption.textContent = 'Generating layout';
   el.newLayout.disabled = true;
   window.location.hash = `s=${seed}&n=${ballCount}`;
   setTimeout(() => {
@@ -181,7 +181,7 @@ function newPuzzle(seed: number): void {
     drag = null;
     el.newLayout.disabled = false;
     if (!puzzle) {
-      el.caption.textContent = 'Could not generate a runnable layout — try again.';
+      el.caption.textContent = 'Could not generate a runnable layout. Try again.';
       return;
     }
     renderCurrent();
@@ -312,7 +312,7 @@ function commitOpeningCue(cue: Vec, targetStep: number): boolean {
   if (!puzzle) return false;
   // When a cue ball is already placed (a drag), a rejected spot snaps it back
   // to where the drag started; at step 0 there is no prior spot to return to.
-  const returned = step !== 0 ? ' — cue ball returned to its previous spot' : '';
+  const returned = step !== 0 ? '. Cue ball returned to its previous spot' : '';
   if (!legalCuePosition(cue, puzzle.layout.balls)) {
     showStatus(`<strong>Invalid placement.</strong> The cue ball overlaps another ball${returned}.`);
     return false;
