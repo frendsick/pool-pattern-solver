@@ -28,7 +28,7 @@ _Avoid_: what-if, ghost placement
 How the cue ball travels from one shot to the next, defined by a Shot Type, contacted rails, and travel distance. The final ball also has a Route, chosen to avoid a scratch rather than reach another Position Window.
 
 **Shot Type**:
-One of five idealized vertical cue-ball actions—stop, follow, stun, touch of low, or draw—that determines the cue ball's departure behavior after contact.
+One of five idealized vertical cue-ball actions (stop, follow, stun, touch of low, or draw) that determines the cue ball's departure behavior after contact.
 _Avoid_: spin shot, english
 
 **Sidespin**:

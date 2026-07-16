@@ -12,9 +12,9 @@ parameter controls instead.
 
 When changing solver behavior, update this guide in the same change if you:
 
-- add, remove, rename, or reinterpret a parameter that affects solver choices;
-- move a decision rule between modules;
-- change the meaning of a score, gate, zone, route, or generated layout;
+- add, remove, rename, or reinterpret a parameter that affects solver choices.
+- move a decision rule between modules.
+- change the meaning of a score, gate, zone, route, or generated layout.
 - add a new player profile, shot type, route type, or generation mode.
 
 Use [CONTEXT.md](../CONTEXT.md) for domain vocabulary and design rationale.
@@ -35,7 +35,7 @@ The runtime flow is:
    layouts and calls the solver. A generated puzzle is accepted only after a
    complete pattern is found, with fallback to the best sampled pattern.
 3. [src/solver.ts](../src/solver.ts) solves the forced 9-ball order. It does
-   not choose ball order; it chooses ball-in-hand placement, pocket choices,
+   not choose ball order. It chooses ball-in-hand placement, pocket choices,
    shot types, routes, and position-zone landings.
 4. [src/value.ts](../src/value.ts) builds backward value surfaces from the
    last ball toward the first, so earlier zones already encode requirements
@@ -80,7 +80,7 @@ roll.
 Sidespin rebound is a diamond-calibrated heuristic, not full ball-cushion
 physics. In `tracePath`, half-maximum sidespin (`0.5`) is calibrated so a
 square long-rail-to-long-rail rebound moves about one diamond from the mirror
-line; maximum practical sidespin would imply about two diamonds. The modeled
+line. Maximum practical sidespin would imply about two diamonds. The modeled
 effect scales by the cue ball's normal component into the cushion, so a square
 attack keeps the full effect and a glancing attack approaches no effect. This
 captures the practical direction of the dropoff, but it deliberately omits the
@@ -145,14 +145,14 @@ position routes.
 the single source for what the route search and the onward-control gate used to
 inline separately:
 
-- `routeEase`: a position route's execution price at a chosen travel — type
+- `routeEase`: a position route's execution price at a chosen travel. It combines
   reliability x draw rail-room x rail-route x hit-power, 0 below pocket-pace
   travel. Used by the route search (route.ts) and the gate (zone.ts
   onwardControl).
 - `walkExit`: walks a traced exit path off the ghost as a generator, yielding
-  one routeEase-priced step per `step` inches; the route search collects all
-  steps, the gate reduces to a running max with early stop. The locus walk both
-  shared. The exact-curve walk (route.ts exactCurveSamples) still retraces per
+  one routeEase-priced step per `step` inches. The route search collects all
+  steps, while the gate reduces to a running max with early stop. Both share the
+  locus walk. The exact-curve walk (route.ts exactCurveSamples) still retraces per
   travel but prices via `routeEase`.
 
 ### Table And Pocket Geometry
@@ -181,7 +181,7 @@ search and zone onward-control checks:
 - `ShotType`: the set of available vertical cue-ball actions.
 - `SIDESPINS`, `Sidespin`, and `MAX_MODELED_SIDESPIN`: the left/right spin
   control axis composed with ShotType. Values are normalized by maximum
-  practical side offset; v1 enumerates no spin plus half-maximum left/right
+  practical side offset. V1 enumerates no spin plus half-maximum left/right
   spin.
 - `LOW_TOUCH`: how far the touch-of-low action sits between stun and draw.
 - `POCKET_PACE`: minimum object-ball pace assumed by `minCueTravel`.
@@ -192,7 +192,7 @@ search and zone onward-control checks:
   ball-to-pocket distance, and travel into forced motion and hit power.
 - `tracePath`: rebound, collision, scratch, and rail-count semantics. Its
   options object owns `maxRails`, optional curved carom geometry, and
-  `sidespin`; numeric trace options are intentionally not supported. Sidespin
+  `sidespin`. Numeric trace options are intentionally not supported. Sidespin
   rebound is intentionally local to cushion contact and does not update a
   persistent spin state between rails.
 
@@ -216,7 +216,7 @@ shot and what window is drawn:
   balls, so without this the value is blind to distance-to-the-next-ball and
   the solver will leave a dead-straight, full-table leave. Because it rides on
   `zoneValue` it shapes the drawn windows, the backward value surfaces, and
-  every onward-control reading alike — devaluing a leave whose only cheap
+  every onward-control reading alike. This devalues a leave whose only cheap
   onward route stays full-table from the next ball.
 - `CONTROL_SAT`: value threshold where onward control saturates.
 - `CONTROL_STEP` and `CONTROL_RANGE`: scan resolution and reach for onward
@@ -234,8 +234,8 @@ shot and what window is drawn:
   It controls how close a feasible dip must remain to the window bar before
   the renderer may bridge it into one clamped drag polygon.
 - `OPEN_RAYS` and `LANDING_KEEP`: the angular opening dissolves window wedges
-  thinner than `OPEN_RAYS` rays — thin radial slivers reaching outward are
-  mishit lines, not leaves — while sparing a `LANDING_KEEP`-inch disk around the
+  thinner than `OPEN_RAYS` rays. Thin radial slivers reaching outward are
+  mishit lines, not leaves. The opening spares a `LANDING_KEEP`-inch disk around the
   route's landing. Only the one lobe holding the landing (else the largest) is
   drawn, so a ball cutting clean across shows just the played side, and stray
   islands fall away.
@@ -303,7 +303,7 @@ and position expectation:
   route's in-zone interval. The interval is selected on effective route value,
   but the lateral scan compares raw `zoneValue` against that route's raw
   equivalent bar. A long multi-rail path running down a narrow lobe no longer
-  gets full window credit from path length alone; the lobe also needs enough
+  gets full window credit from path length alone. The lobe also needs enough
   in-bar width across the route for the route's direction spread.
 - `redundantLongFollowFactor`: penalizes a long rail-follow when a comparable
   short no-rail route reaches about the same window. The short route also
@@ -316,7 +316,7 @@ and position expectation:
 - `zoneTargets`: which pockets are eligible for the next ball.
 - `routeCandidates`: stop/follow/stun/low/draw candidate enumeration. Nonzero
   sidespin is a fallback axis for a type/target when the no-spin route has no
-  usable sample; it carries no modeled benefit before a cushion, and final-ball
+  usable sample. It carries no modeled benefit before a cushion, and final-ball
   safety routes stay no-spin. Also owns
   effective-value bars, interval selection, deep-end landing candidates,
   simple-route comparison for redundant rail-follow, and route ease.
@@ -324,15 +324,15 @@ and position expectation:
 - `pocketRisk`: deterministic scratch-risk penalty for paths near pocket
   mouths.
 - `finalSafetyRoute`: the final ball's Route. It has no next Position Window,
-  so it is chosen for SAFETY — enumerate every open pocket x shot type at
-  minimal natural travel (`minCueTravel`, a soft position-free stroke; stop is
-  offered only on a near-straight cut) and pick the route maximizing
+  so it is chosen for safety by enumerating every open pocket x shot type at
+  minimal natural travel (`minCueTravel`, a soft position-free stroke). Stop is
+  offered only on a near-straight cut. The route maximizes
   `P(pot) x P(no scratch)`, tie-breaking toward the easiest shot type
   (`FINAL_TYPE_ORDER`). Scratch is priced through the same `pocketRisk`
   machinery as mid-rack scratch (a route whose trace enters a pocket is floored
   at `SCRATCH_FLOOR`, not discarded). No object balls remain when the 9 is shot,
   so the trace sees only cushions and pocket mouths. Called from `solver.ts`
-  `finalize`; its `noScratch` multiplies the reported run-out probability.
+  `finalize`. Its `noScratch` multiplies the reported run-out probability.
 - `clearanceRisk`: deterministic penalty for a cue-ball path that threads
   close past a ball it is not playing position for (the object-ball twin of
   `pocketRisk`). The landing quadrature samples direction too coarsely to see
@@ -342,13 +342,13 @@ and position expectation:
   `BLOCK_FLOOR` is intentionally gentle: this rides on `score`, so a heavy
   multiplier can re-route the whole rack into longer follows to dodge one
   near-miss. It is sized to break a genuine near-tie, not to override run-out
-  value. `clearanceRisk` and `pocketRisk` share two helpers — `rampPenalty`
+  value. `clearanceRisk` and `pocketRisk` share two helpers: `rampPenalty`
   (the floor-to-1 ramp) and `nearestApproach` (closest path approach to a
   point, with an optional per-segment direction filter for pocket mouths).
 
 The route search has a strict pass and a lenient fallback. Preserve that
 shape when tuning thresholds: strict keeps chosen landings consistent with
-drawn windows; lenient prevents otherwise solvable layouts from failing.
+drawn windows. Lenient prevents otherwise solvable layouts from failing.
 
 ### Forward Beam Search
 
@@ -367,7 +367,7 @@ These parameters affect global pattern selection:
   shot and stamps it on `PlannedShot.zone`, so the renderer and the explanation
   read the same zone the route was scored against instead of rebuilding it. In
   the same pass it remeasures zoneLen/entryDeg against that zone with the
-  pocket actually chosen — the role it previously had as `remeasureZones`.
+  pocket actually chosen. This is the role it previously had as `remeasureZones`.
 - `finalize`: appends the last shot and asks `finalSafetyRoute` (route.ts) for
   the final ball's safety Route (it has no next window), stamping its shot type,
   path, and landing instead of a null pot-only shot. The route's `noScratch`
@@ -406,7 +406,7 @@ but they affect how users reach and inspect solver decisions:
 - [src/main.ts](../src/main.ts): `MIN_BALLS`, `MAX_BALLS`, `DEFAULT_BALLS`,
   URL hash parsing, step navigation, the selected fixed skill profile, and
   opening Ball in Hand interaction. The first-look layout accepts a click/tap
-  as an exact player-placed Ball in Hand; once a cue ball is visible, whether
+  as an exact player-placed Ball in Hand. Once a cue ball is visible, whether
   solver-placed or player-placed, dragging it adjusts that exact opening
   placement and re-solves the active Pattern on release. The opening placement
   path stays in `main.ts`: validate the cue with `legalCuePosition`, then call
@@ -422,21 +422,21 @@ but they affect how users reach and inspect solver decisions:
 - [src/playback.ts](../src/playback.ts): optional per-shot real-time playback
   (ADR-0006). `buildPlayback(shot)` returns a `ShotPlayback {duration, at(t)}`
   that maps animation time to ball positions ALONG the geometry the solver
-  already traced — never a separate physics sim. Two phases: the cue approach
+  already traced, never a separate physics sim. Two phases cover the cue approach
   (`cuePos → ghost`), then the concurrent object-ball-to-pocket roll and the cue
   carom along the shot's `path` to `landing`. Motion is one rolling-friction
-  deceleration constant `DECEL`; each phase's start speed comes from an existing
-  solver quantity — `hitDistance` (approach hit power, floored by `HIT_FLOOR`)
+  deceleration constant `DECEL`. Each phase's start speed comes from an existing
+  solver quantity: `hitDistance` (approach hit power, floored by `HIT_FLOOR`)
   and `travel` (cue carom). The object ball's launch speed follows the **90°
   rule** (`vContact·cos(cut)`, Alciatore): at impact it takes the impact-line
-  share of the cue's speed, so a fuller hit sends it off faster — this is what
+  share of the cue's speed, so a fuller hit sends it off faster. This is what
   keeps a near-straight follow from letting the caroming cue overtake the ball
   it just potted (it is floored at the pocket-reaching pace, `POCKET_PACE` carry
   past the lip, so a thin soft cut never stalls short). So durations emerge from
   distance and hit power. Two motion invariants live in `playback.ts`: `covered`
   freezes the kinematic parabola at the rest-instant `v0/DECEL` (past it the
-  parabola turns down and would walk a stopped ball backward — the cause of an
-  earlier "cue drifts back" artifact); and the cue rests on `landing` (the next
+  parabola turns down and would walk a stopped ball backward, which caused an
+  earlier "cue drifts back" artifact), and the cue rests on `landing` (the next
   shot's cue position) with the carom walk clamped to the path point nearest it
   (`nearestArc`), so a stop shot whose traced path overshoots its landing by
   `minCueTravel` stays put instead of creeping forward then snapping back.
@@ -446,7 +446,7 @@ but they affect how users reach and inspect solver decisions:
   owns the rAF loop, rebuilds a bare Scene (planning overlays suppressed) at each
   frame's positions, and plays once. On completion it auto-advances one step to
   the next shot's static planning diagram (overlays restored) and waits for
-  another Play; the final shot has no next shot, so it stays frozen on the leave.
+  another Play. The final shot has no next shot, so it stays frozen on the leave.
   Because the bare Scene is assembled in `main.ts`, `scene.ts`/`render.ts` stay
   pure and the snapshot tool is unaffected.
 - [src/explain.ts](../src/explain.ts): text thresholds and phrasing for shot
