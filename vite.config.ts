@@ -19,7 +19,8 @@ export default defineConfig({
           'Random late-rack 9-ball layouts, solved for the best run-out pattern.',
         start_url: '/',
         display: 'standalone',
-        theme_color: '#20242a',
+        theme_color: '#111619',
+        background_color: '#111619',
         icons: [
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },

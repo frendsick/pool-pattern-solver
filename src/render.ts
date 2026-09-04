@@ -1,12 +1,11 @@
-// Pure SVG renderer: top-down table diagram in the style of the knowledgebase
-// articles — green felt, tan rails, shaded position-zone windows, arrowed
-// cue-ball paths, dashed ghost balls.
+// Pure SVG renderer: a Diamond Pro-Am style table with training overlays.
+// Pocket artwork does not change the solver's targets or shot acceptance.
 
 import { Vec } from './geometry';
-import { TABLE_W, TABLE_H, BALL_R, POCKETS, Ball } from './table';
+import { TABLE_W, TABLE_H, BALL_R, Ball } from './table';
 
 const S = 9; // px per inch
-const RAIL = 5; // rail width, inches
+const RAIL = 7; // rail width, inches
 
 export interface SceneShot {
   cuePos: Vec;
@@ -90,7 +89,9 @@ function drawBall(b: Ball, faded = false): string {
   }
   return (
     `<g opacity="${op}">` +
+    `<ellipse cx="${cx}" cy="${Number(cy) + r * 0.28}" rx="${r * 1.04}" ry="${r * 0.95}" fill="#061a2455"/>` +
     body +
+    `<circle cx="${cx}" cy="${cy}" r="${r}" fill="url(#ballLight)"/>` +
     `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(0,0,0,0.45)" stroke-width="0.8"/>` +
     `<circle cx="${cx}" cy="${cy}" r="${r * 0.52}" fill="#fdfdf6"/>` +
     `<text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central" font-size="${r * 0.78}" font-family="Arial, sans-serif" font-weight="bold" fill="#222">${b.num}</text>` +
@@ -107,40 +108,86 @@ function drawCueBall(p: Vec, dashed = false, draggable = false): string {
   return `<circle cx="${X(p.x)}" cy="${Y(p.y)}" r="${r}"${dragAttrs} ${stroke}/>`;
 }
 
+/** Draw in inches, with six separate cushions and recessed pocket wells.
+ * Mouth widths are physical artwork dimensions, not solver acceptance widths.
+ * ponytail: approximate jaws and shelves. Use measured profiles for exact replication.
+ */
 function tableBase(): string {
-  const w = (TABLE_W + 2 * RAIL) * S;
-  const h = (TABLE_H + 2 * RAIL) * S;
-  let s = `<rect x="0" y="0" width="${w}" height="${h}" rx="${1.8 * S}" fill="#8b5a33"/>`;
-  s += `<rect x="${px(RAIL * 0.55)}" y="${px(RAIL * 0.55)}" width="${(TABLE_W + 0.9 * RAIL) * S}" height="${(TABLE_H + 0.9 * RAIL) * S}" fill="#2e7a44"/>`;
-  s += `<rect x="${px(RAIL)}" y="${px(RAIL)}" width="${TABLE_W * S}" height="${TABLE_H * S}" fill="#3c9158"/>`;
-  for (const p of POCKETS) {
-    const isCorner = p.id.length === 2 && p.id !== 'BS' && p.id !== 'TS';
-    const off = isCorner ? 1.4 : 1.6;
-    const cx = p.target.x + p.facing.x * off;
-    const cy = p.target.y + p.facing.y * off;
-    s += `<circle cx="${X(cx)}" cy="${Y(cy)}" r="${3.1 * S}" fill="#14100c"/>`;
+  const cornerMouth = 4.5;
+  const sideMouth = 5;
+  const cornerEnd = cornerMouth / Math.SQRT2;
+  const cushionDepth = 2;
+  const cornerBack = cornerEnd - cushionDepth / Math.tan(38 * Math.PI / 180);
+  const sideEnd = TABLE_W / 2 - sideMouth / 2;
+  const sideBack = sideEnd + cushionDepth * Math.tan(14 * Math.PI / 180);
+  const longCushion = `${cornerEnd},0 ${sideEnd},0 ${sideBack},-2 ${cornerBack},-2`;
+  const shortCushion = `0,${cornerEnd} 0,${TABLE_H - cornerEnd} -2,${TABLE_H - cornerBack} -2,${cornerBack}`;
+  const mouthCenter = cornerEnd / 2;
+  const diagonal = 1 / Math.SQRT2;
+  let s = `<g transform="translate(${RAIL * S} ${RAIL * S}) scale(${S})">`;
+  s += `<rect x="-7" y="-7" width="${TABLE_W + 14}" height="${TABLE_H + 14}" rx="4" fill="url(#railFinish)" stroke="#435058" stroke-width="0.2"/>`;
+  s += `<rect x="-6.5" y="-6.5" width="${TABLE_W + 13}" height="${TABLE_H + 13}" rx="3.6" fill="none" stroke="#080d10" stroke-width="0.3"/>`;
+  s += `<rect x="-2" y="-2" width="${TABLE_W + 4}" height="${TABLE_H + 4}" fill="url(#cloth)"/>`;
+
+  // Flush U-shaped liners and rounded wells, based on the reference photographs:
+  // https://dlbilliards.com/cdn/shop/products/black_pockets.jpg?v=1616529623
+  // https://dlbilliards.com/cdn/shop/products/black_side_pocket_4d89ab2f-7369-4643-9e25-df5f3f67d95a_1024x1024.jpg?v=1616533057
+  // Draw them before the cushions so the cloth facings cover the liner ends.
+  for (const y of [0, TABLE_H]) {
+    const throat = TABLE_W / 2 - sideBack;
+    const shelf = sideMouth / 2 - (sideBack - sideEnd) * 0.1;
+    s += `<g transform="translate(${TABLE_W / 2} ${y}) scale(1 ${y ? -1 : 1})">`;
+    s += `<path d="M -3.2,-1.8 L -3.2,-3.2 Q -3.2,-5.9 0,-5.9 Q 3.2,-5.9 3.2,-3.2 L 3.2,-1.8 Z" fill="url(#pocketLiner)" stroke="#41494d" stroke-width="0.12"/>`;
+    s += `<path d="M -${shelf},-0.2 L -${throat},-2 L -${throat},-3.2 Q -${throat},-4.7 0,-4.7 Q ${throat},-4.7 ${throat},-3.2 L ${throat},-2 L ${shelf},-0.2 Z" fill="#030608" stroke="#111719" stroke-width="0.12"/>`;
+    s += `</g>`;
   }
-  // sights (diamonds)
-  const diamond = (x: number, y: number) =>
-    `<circle cx="${X(x)}" cy="${Y(y)}" r="${0.45 * S}" fill="#e8dcc0"/>`;
+
+  // Mirror one pair of long cushions and one corner well into each quadrant.
+  for (const x of [0, TABLE_W]) {
+    for (const y of [0, TABLE_H]) {
+      s += `<g transform="translate(${x} ${y}) scale(${x ? -1 : 1} ${y ? -1 : 1})">`;
+      // In this frame, x spans the mouth and +y runs into the pocket.
+      s += `<g transform="matrix(${diagonal} ${-diagonal} ${-diagonal} ${-diagonal} ${mouthCenter} ${mouthCenter})">`;
+      s += `<path d="M -3.25,2.6 L -3.25,4.2 Q -3.25,7 0,7 Q 3.25,7 3.25,4.2 L 3.25,2.6 Z" fill="url(#pocketLiner)" stroke="#41494d" stroke-width="0.12"/>`;
+      s += `<path d="M -2.15,1.5 Q 0,2.1 2.15,1.5 L 2.15,4.2 Q 2.15,5.9 0,5.9 Q -2.15,5.9 -2.15,4.2 Z" fill="#030608" stroke="#111719" stroke-width="0.12"/>`;
+      s += `</g>`;
+      s += `<polygon points="${longCushion}" fill="url(#cushion)" stroke="#1e5b72" stroke-width="0.12" stroke-linejoin="round"/>`;
+      s += `<path d="M ${cornerEnd},0 H ${sideEnd}" fill="none" stroke="#75bbce" stroke-opacity="0.55" stroke-width="0.12"/>`;
+      s += `</g>`;
+    }
+  }
+  for (const x of [0, TABLE_W]) {
+    s += `<g transform="translate(${x} 0) scale(${x ? -1 : 1} 1)">`;
+    s += `<polygon points="${shortCushion}" fill="#26758e" stroke="#1e5b72" stroke-width="0.12" stroke-linejoin="round"/>`;
+    s += `<path d="M 0,${cornerEnd} V ${TABLE_H - cornerEnd}" stroke="#75bbce" stroke-opacity="0.55" stroke-width="0.12"/>`;
+    s += `</g>`;
+  }
+  const diamond = (x: number, y: number, rotation = 0) =>
+    `<path transform="translate(${x} ${y}) rotate(${rotation})" d="M 0,-0.5 L 0.3,0 0,0.5 -0.3,0 Z" fill="#c4c8bd"/>`;
   for (let i = 1; i < 8; i++) {
     if (i === 4) continue;
-    s += diamond((TABLE_W * i) / 8, -RAIL / 2);
-    s += diamond((TABLE_W * i) / 8, TABLE_H + RAIL / 2);
+    s += diamond(TABLE_W * i / 8, -4.4);
+    s += diamond(TABLE_W * i / 8, TABLE_H + 4.4);
   }
   for (let i = 1; i < 4; i++) {
-    s += diamond(-RAIL / 2, (TABLE_H * i) / 4);
-    s += diamond(TABLE_W + RAIL / 2, (TABLE_H * i) / 4);
+    s += diamond(-4.4, TABLE_H * i / 4, 90);
+    s += diamond(TABLE_W + 4.4, TABLE_H * i / 4, 90);
   }
-  return s;
+  s += `<circle cx="${TABLE_W * 3 / 4}" cy="${TABLE_H / 2}" r="0.22" fill="#d3ebee" fill-opacity="0.4"/>`;
+  return s + `</g>`;
 }
 
 export function renderScene(scene: Scene): string {
   const w = (TABLE_W + 2 * RAIL) * S;
   const h = (TABLE_H + 2 * RAIL) * S;
   const defs =
-    `<marker id="arrowRed" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d63a3a"/></marker>` +
-    `<marker id="arrowDark" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>`;
+    `<linearGradient id="pocketLiner" x2="0" y2="1"><stop stop-color="#272f33"/><stop offset="1" stop-color="#171e22"/></linearGradient>` +
+    `<linearGradient id="railFinish" x2="0" y2="1"><stop stop-color="#303b41"/><stop offset="1" stop-color="#171f24"/></linearGradient>` +
+    `<radialGradient id="cloth"><stop stop-color="#338daa"/><stop offset="1" stop-color="#2b809b"/></radialGradient>` +
+    `<linearGradient id="cushion" x2="0" y2="1"><stop stop-color="#328ca5"/><stop offset="1" stop-color="#226980"/></linearGradient>` +
+    `<radialGradient id="ballLight" cx="32%" cy="25%" r="75%"><stop stop-color="white" stop-opacity="0.45"/><stop offset="0.4" stop-color="white" stop-opacity="0"/><stop offset="1" stop-color="black" stop-opacity="0.25"/></radialGradient>` +
+    `<marker id="arrowRoute" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ffad86"/></marker>` +
+    `<marker id="arrowPot" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fff8e8"/></marker>`;
   let body = tableBase();
 
   if (scene.originZoneHighlighted) {
@@ -155,12 +202,12 @@ export function renderScene(scene: Scene): string {
 
   for (const az of scene.altZones) {
     if (az.length >= 3) {
-      body += `<polygon points="${az.map(pt).join(' ')}" fill="rgba(190,190,178,0.22)" stroke="#9a9a8e" stroke-width="1.2" stroke-dasharray="4 4"/>`;
+      body += `<polygon points="${az.map(pt).join(' ')}" fill="rgba(190,190,178,0.22)" stroke="#a8c9d2" stroke-width="1.2" stroke-dasharray="4 4"/>`;
     }
   }
   for (const z of scene.zone) {
     if (z.length >= 3) {
-      body += `<polygon points="${z.map(pt).join(' ')}" fill="rgba(255,216,77,0.35)" stroke="#caa419" stroke-width="1.5" stroke-dasharray="6 4"/>`;
+      body += `<polygon points="${z.map(pt).join(' ')}" fill="rgba(255,216,77,0.22)" stroke="#f0d578" stroke-width="1.5" stroke-dasharray="6 4"/>`;
     }
   }
 
@@ -171,11 +218,11 @@ export function renderScene(scene: Scene): string {
   const shot = scene.shot;
   if (shot) {
     // object ball -> pocket
-    body += line(shot.ballPos, shot.pocketTarget, `stroke="#222" stroke-width="1.6" stroke-dasharray="5 4" marker-end="url(#arrowDark)"`);
+    body += line(shot.ballPos, shot.pocketTarget, `stroke="#fff8e8" stroke-width="2" stroke-dasharray="5 4" marker-end="url(#arrowPot)"`);
     // cue -> ghost
     body += line(shot.cuePos, shot.ghost, `stroke="rgba(253,253,246,0.85)" stroke-width="2"`);
     if (shot.path && shot.path.length >= 2) {
-      body += polyline(shot.path, `stroke="#d63a3a" stroke-width="2.6" marker-end="url(#arrowRed)"`);
+      body += polyline(shot.path, `stroke="#ffad86" stroke-width="2.6" marker-end="url(#arrowRoute)"`);
     }
     if (shot.landing) body += drawCueBall(shot.landing, true);
   }
@@ -184,7 +231,7 @@ export function renderScene(scene: Scene): string {
   if (scene.cue) body += drawCueBall(scene.cue, false, scene.cueDraggable ?? false);
 
   return (
-    `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img">` +
+    `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Top-down nine-ball pool table"><title>Nine-ball practice table</title>` +
     `<defs>` +
     defs +
     `</defs>` +

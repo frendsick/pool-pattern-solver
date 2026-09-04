@@ -58,6 +58,18 @@ describe('scene draws the Position Zone the route was scored against', () => {
     expect(firstShotDrag.zone).toEqual([]);
   });
 
+  it('keeps a player-placed cue visible without revealing the pattern', () => {
+    expect(sceneForStep(layout, pattern, 0, INTERMEDIATE).cue).toBeNull();
+    const cue = vec(20, 20);
+    const concealed = sceneForStep(layout, pattern, 0, INTERMEDIATE, { cue });
+    expect(concealed.cue).toEqual(cue);
+    expect(concealed.cueDraggable).toBe(true);
+    expect(concealed.balls).toEqual(layout.balls);
+    expect(concealed.shot).toBeNull();
+    expect(concealed.ghostPaths).toEqual([]);
+    expect(concealed.zone).toEqual([]);
+  });
+
   it('only exposes the origin Position Window while cue-ball drag is highlighted', () => {
     const firstShot = sceneForStep(layout, pattern, 2, INTERMEDIATE);
     expect(firstShot.originZone).toEqual([]);

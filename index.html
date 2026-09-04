@@ -6,7 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
-    <meta name="theme-color" content="#20242a" />
+    <meta name="theme-color" content="#111619" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -17,15 +17,13 @@
   </head>
   <body>
     <main id="app">
-      <header>
-        <h1>9-Ball Pattern Solver</h1>
-        <p class="subtitle">
-          Random late-rack layouts with natural routes and Position Windows.
-        </p>
-      </header>
+      <section class="table-stage" aria-label="Practice layout">
+        <div id="table" class="table" tabindex="0" role="group"
+          aria-label="Pool table" aria-describedby="tableHelp"></div>
+        <p id="caption" class="caption" role="status"></p>
+      </section>
 
-      <div class="controls">
-        <button id="newLayout" class="primary">New layout</button>
+      <footer class="controls">
         <label class="ball-count">
           Balls left
           <select id="ballCount">
@@ -39,19 +37,31 @@
             <option>9</option>
           </select>
         </label>
-        <div class="stepper">
-          <button id="prev">&#8592; Prev</button>
-          <span id="stepLabel"></span>
-          <button id="next">Next &#8594;</button>
-        </div>
-        <button id="play" class="secondary">&#9658; Play</button>
-        <button id="restoreLine" class="secondary">Restore solver line</button>
-        <span id="score" class="score"></span>
-      </div>
-
-      <div id="table" class="table"></div>
-
-      <div id="caption" class="caption"></div>
+        <nav class="ball-strip" aria-label="Pattern controls">
+          <div id="shotSelection" class="shot-selection" hidden>
+            <button id="hide" class="quiet">Hide</button>
+            <button id="overview" class="quiet" aria-label="Show whole pattern">All</button>
+            <div id="balls" class="shot-strip"></div>
+          </div>
+          <div class="strip-actions">
+            <button id="restoreLine" class="quiet" hidden>Reset cue</button>
+            <button id="reveal" class="primary" disabled>Reveal</button>
+            <div id="playbackControls" class="strip-playback" hidden>
+              <button id="prev" class="icon quiet" aria-label="Previous ball" title="Previous ball">&#8249;</button>
+              <button id="play" class="icon" aria-label="Play shot and advance" title="Play shot and advance">&#9654;</button>
+              <button id="next" class="icon quiet" aria-label="Next ball" title="Next ball">&#8250;</button>
+            </div>
+            <button id="newLayout" class="icon quiet" aria-label="New layout" title="New layout">&#8635;</button>
+          </div>
+        </nav>
+      </footer>
+      <p id="stepLabel" class="sr-only" role="status"></p>
+      <p id="tableHelp" class="sr-only">
+        Tap the cloth to place the cue ball before revealing the pattern.
+        Drag the opening cue freely, or a later cue within its position window.
+        With the table focused, press Enter to place the cue, then use arrow keys
+        to adjust it. Hold Shift for fine movement.
+      </p>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

@@ -3,7 +3,7 @@ import type { GeneratedPuzzle } from './generator';
 import { unpackPuzzle } from './generation';
 import type { GenerationRequest, PuzzleMessage } from './generation';
 import { Vec, dist } from './geometry';
-import { BALL_R } from './table';
+import { BALL_R, TABLE_W, TABLE_H } from './table';
 import { previewLegFromCue, solveFromCue } from './solver';
 import type { Pattern, PlannedShot } from './solver';
 import { originWindowForStep, sceneForStep } from './scene';
@@ -26,7 +26,12 @@ const el = {
   table: document.getElementById('table')!,
   caption: document.getElementById('caption')!,
   stepLabel: document.getElementById('stepLabel')!,
-  score: document.getElementById('score')!,
+  balls: document.getElementById('balls')!,
+  shotSelection: document.getElementById('shotSelection')!,
+  playbackControls: document.getElementById('playbackControls')!,
+  reveal: document.getElementById('reveal') as HTMLButtonElement,
+  hide: document.getElementById('hide') as HTMLButtonElement,
+  overview: document.getElementById('overview') as HTMLButtonElement,
   newLayout: document.getElementById('newLayout') as HTMLButtonElement,
   ballCount: document.getElementById('ballCount') as HTMLSelectElement,
   prev: document.getElementById('prev') as HTMLButtonElement,
@@ -66,42 +71,12 @@ let step = 0; // 0 = first-look layout, 1 = overview, 2..N+1 = shots
 let drag: DragState | null = null;
 let statusCaption: string | null = null;
 let generationWorker: Worker | null = null;
+let playbackFinished = false;
 
 // Per-shot real-time playback (issue #19): a rAF loop walks playback.ts and
 // rebuilds a bare Scene per frame. Null whenever the diagram is at rest.
 type PlayState = { index: number; pb: ShotPlayback; start: number; raf: number };
 let playState: PlayState | null = null;
-
-function captionForStep(
-  pattern: Pattern,
-  s: number,
-  openingPlacement: OpeningPlacement,
-): string {
-  if (s === 0) {
-    return (
-      `<strong>Ball in hand. Your turn first.</strong> No cue ball yet. ` +
-      `visualize your own pattern (pockets, routes, where you would place the ` +
-      `cue ball), then press <em>Next</em> to see the solver's starting position.`
-    );
-  }
-  if (s === 1) {
-    const pct = Math.round(pattern.score * 100);
-    if (openingPlacement === 'player') {
-      return (
-        `<strong>Player-placed Ball in Hand.</strong> Best run-out from your cue-ball placement ` +
-        `(faint white paths). Estimated run-out probability: <strong>${pct}%</strong>. ` +
-        `Step through the shots with <em>Next</em>.`
-      );
-    }
-    return (
-      `<strong>Ball in hand.</strong> The solver placed the cue ball and planned the full run-out ` +
-      `(faint white paths). Estimated run-out probability: <strong>${pct}%</strong>. ` +
-      `Step through the shots with <em>Next</em>.`
-    );
-  }
-  const shot = pattern.shots[s - 2];
-  return `<strong>Shot ${s - 1}.</strong> ${shot.explanation}`;
-}
 
 function renderCurrent(): void {
   if (!puzzle || !activePattern) return;
@@ -115,30 +90,14 @@ function renderCurrent(): void {
       ? { cue: drag.cue, previewShot: drag.preview, highlightOriginZone: true }
       : drag?.kind === 'opening'
         ? { cue: drag.cue, suppressPattern: true }
-        : {},
+        : step === 0 && activeOpeningPlacement === 'player'
+          ? { cue: activePattern.shots[0].cuePos }
+          : {},
   );
   el.table.innerHTML = renderScene(scene);
-  if (drag?.kind === 'alternative') {
-    const reach = drag.preview?.eNext ?? null;
-    el.caption.innerHTML =
-      reach === null
-        ? `<strong>Alternative leave.</strong> No route to the shown Position Window from this cue position.`
-        : `<strong>Alternative leave.</strong> Best live route reaches the shown Position Window about <strong>${Math.round(reach * 100)}%</strong> of the time.`;
-  } else if (drag?.kind === 'opening') {
-    el.caption.innerHTML =
-      `<strong>Ball in hand.</strong> Release the cue ball to solve from this exact placement.`;
-  } else if (statusCaption) {
-    el.caption.innerHTML = statusCaption;
-  } else {
-    el.caption.innerHTML = captionForStep(activePattern, step, activeOpeningPlacement);
-  }
+  el.caption.textContent = statusCaption ?? '';
   el.stepLabel.textContent =
-    step === 0 ? 'Layout' : step === 1 ? 'Overview' : `Shot ${step - 1} of ${n}`;
-  const reach = drag?.kind === 'alternative' ? drag.preview?.eNext ?? null : null;
-  el.score.textContent =
-    drag?.kind === 'alternative'
-      ? reach === null ? 'No live route' : `Leg reach ~${Math.round(reach * 100)}%`
-      : `Run-out ~${Math.round(activePattern.score * 100)}%`;
+    step === 0 ? 'Place the cue ball or reveal the pattern' : step === 1 ? 'Whole pattern' : `Shot ${step - 1} of ${n}, ball ${activePattern.shots[step - 2].ball.num}`;
   updateControls();
 }
 
@@ -148,19 +107,53 @@ function updateControls(): void {
   const unavailable = !puzzle || !activePattern;
   const n = activePattern?.shots.length ?? 0;
   const playing = playState !== null;
-  el.prev.disabled = unavailable || playing || step === 0;
-  el.next.disabled = unavailable || playing || step === n + 1;
-  // Play is present always but inert off shot steps (layout/overview) and
-  // while a shot is already playing.
-  el.play.disabled = unavailable || playing || currentShotIndex() === null;
-  el.newLayout.disabled = playing;
-  el.ballCount.disabled = playing;
-  el.restoreLine.disabled =
-    unavailable || playing || !(drag?.kind === 'opening' || activePattern !== puzzle?.pattern);
+  const inShot = currentShotIndex() !== null;
+  el.shotSelection.hidden = unavailable || step === 0;
+  el.playbackControls.hidden = !inShot;
+  el.reveal.hidden = inShot;
+  el.reveal.disabled = unavailable || drag !== null;
+  el.reveal.textContent = step === 1 ? 'First shot' : 'Reveal';
+  el.prev.disabled = !inShot || drag !== null || step <= 2;
+  el.next.disabled = !inShot || drag !== null || step >= n + 1;
+  el.play.disabled = !inShot || drag !== null;
+  el.play.textContent = playbackFinished ? 'Again' : playing ? '■' : '▶';
+  el.play.classList.toggle('finished', playbackFinished);
+  const playLabel = playbackFinished ? 'Practice again' : playing ? 'Stop replay' : 'Play shot and advance';
+  el.play.setAttribute('aria-label', playLabel);
+  el.play.title = playLabel;
+  el.restoreLine.hidden = unavailable || step >= 2 || activePattern === puzzle?.pattern;
+  el.restoreLine.disabled = drag !== null;
+  el.hide.disabled = drag !== null;
+  el.overview.disabled = drag !== null;
+  el.overview.classList.toggle('selected', step === 1);
+  el.overview.setAttribute('aria-pressed', String(step === 1));
+  for (const button of el.balls.querySelectorAll<HTMLButtonElement>('button')) {
+    const selected = Number(button.dataset.step) === step;
+    button.classList.toggle('selected', selected);
+    if (selected) button.setAttribute('aria-current', 'step');
+    else button.removeAttribute('aria-current');
+    button.disabled = drag !== null;
+  }
+}
+
+function goToStep(target: number): void {
+  if (!activePattern || drag) return;
+  const focused = document.activeElement;
+  stopPlayback();
+  playbackFinished = false;
+  clearStatus();
+  step = Math.max(0, Math.min(target, activePattern.shots.length + 1));
+  renderCurrent();
+  if (focused instanceof HTMLElement && focused.closest('[hidden]')) {
+    (step < 2 ? el.reveal : el.play).focus({ preventScroll: true });
+  }
+  const selected = el.balls.querySelector<HTMLElement>('[aria-current="step"]');
+  selected?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 
 function clearStatus(): void {
   statusCaption = null;
+  el.caption.textContent = '';
 }
 
 function showStatus(message: string): void {
@@ -173,6 +166,7 @@ function newPuzzle(seed: number): void {
   generationWorker?.terminate();
   generationWorker = null;
   stopPlayback();
+  playbackFinished = false;
   clearStatus();
   if (drag) el.table.releasePointerCapture(drag.pointerId);
   drag = null;
@@ -183,7 +177,7 @@ function newPuzzle(seed: number): void {
   el.table.replaceChildren();
   el.table.setAttribute('aria-busy', 'true');
   el.stepLabel.textContent = '';
-  el.score.textContent = '';
+  el.balls.replaceChildren();
   el.caption.textContent = 'Generating layout';
   updateControls();
   window.location.hash = `s=${seed}&n=${ballCount}`;
@@ -215,6 +209,15 @@ function finishGeneration(result: GeneratedPuzzle | null): void {
   if (!puzzle) {
     el.caption.textContent = 'Could not generate a runnable layout. Try again.';
     return;
+  }
+  for (const [i, shot] of puzzle.pattern.shots.entries()) {
+    const button = document.createElement('button');
+    button.className = 'shot-link';
+    button.dataset.step = String(i + 2);
+    button.setAttribute('aria-label', `Shot ${i + 1}, ball ${shot.ball.num}`);
+    button.innerHTML = `<span class="ball-chip ball-${shot.ball.num}">${shot.ball.num}</span>`;
+    button.addEventListener('click', () => goToStep(i + 2));
+    el.balls.append(button);
   }
   renderCurrent();
 }
@@ -271,10 +274,11 @@ function finishPlayback(): void {
   playState = null;
   const isLastShot = index >= activePattern.shots.length - 1;
   if (isLastShot) {
-    updateControls(); // freeze on the leave; nothing to advance to
+    playbackFinished = true;
+    el.stepLabel.textContent = 'Rack complete';
+    updateControls(); // Keep the cleared table until the player navigates.
   } else {
-    step += 1; // step i+2 -> i+3, the next shot
-    renderCurrent(); // restores the planning overlays for the next shot
+    goToStep(step + 1);
   }
 }
 
@@ -303,7 +307,7 @@ function stopPlayback(): void {
 function pointerToTable(e: PointerEvent): Vec | null {
   const svg = el.table.querySelector('svg');
   if (!svg) return null;
-  // getScreenCTM includes CSS scaling; invert it to map screen px → SVG units.
+  // Includes CSS rotation and scaling, so portrait touch uses the same mapping.
   const ctm = svg.getScreenCTM();
   if (!ctm) return null;
   const local = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
@@ -335,22 +339,21 @@ function continuationPrefix(index: number): number {
 }
 
 function pointerHitsOpeningCue(p: Vec): boolean {
-  if (!activePattern || (step !== 1 && step !== 2)) return false;
+  if (!activePattern || step > 2 || (step === 0 && activeOpeningPlacement !== 'player')) return false;
   return dist(p, activePattern.shots[0].cuePos) <= BALL_R * 2.2;
 }
 
 function commitOpeningCue(cue: Vec, targetStep: number): boolean {
   if (!puzzle) return false;
-  // When a cue ball is already placed (a drag), a rejected spot snaps it back
-  // to where the drag started; at step 0 there is no prior spot to return to.
-  const returned = step !== 0 ? '. Cue ball returned to its previous spot' : '';
+  const returned = step !== 0 || activeOpeningPlacement === 'player'
+    ? '. Cue ball returned to its previous spot' : '';
   if (!legalCuePosition(cue, puzzle.layout.balls)) {
-    showStatus(`<strong>Invalid placement.</strong> The cue ball overlaps another ball${returned}.`);
+    showStatus(`Place the cue ball on the cloth, clear of other balls${returned}.`);
     return false;
   }
   const pattern = solveFromCue(puzzle.layout, INTERMEDIATE, 0, cue);
   if (!pattern || pattern.score <= 0) {
-    showStatus(`<strong>Invalid placement.</strong> No complete run-out from there${returned}.`);
+    showStatus(`No complete run-out from there${returned}.`);
     return false;
   }
   activePattern = pattern;
@@ -424,6 +427,7 @@ function startAlternativeDrag(e: PointerEvent, index: number, p: Vec): void {
   const cue = activePattern.shots[index].cuePos;
   if (dist(p, cue) > BALL_R * 2.2) return;
   const originZone = originWindowForStep(activePattern, step, INTERMEDIATE);
+  if (originZone.length === 0) return;
   const clamped = clampedAlternativeCue(index, p, originZone);
   drag = {
     kind: 'alternative',
@@ -438,20 +442,20 @@ function startAlternativeDrag(e: PointerEvent, index: number, p: Vec): void {
 }
 
 el.table.addEventListener('pointerdown', (e) => {
-  if (playState) return;
+  if (playState || playbackFinished || drag) return;
   if (!puzzle || !activePattern || e.button !== 0) return;
   const p = pointerToTable(e);
   if (!p) return;
   clearStatus();
 
-  if (step === 0) {
-    commitOpeningCue(p, 1);
-    e.preventDefault();
+  if (pointerHitsOpeningCue(p)) {
+    startOpeningDrag(e);
     return;
   }
 
-  if (pointerHitsOpeningCue(p)) {
-    startOpeningDrag(e);
+  if (step === 0) {
+    commitOpeningCue(p, 0);
+    e.preventDefault();
     return;
   }
 
@@ -495,35 +499,46 @@ el.newLayout.addEventListener('click', () => {
 el.ballCount.addEventListener('change', () => {
   newPuzzle(Math.floor(Math.random() * 1e9));
 });
-el.prev.addEventListener('click', () => {
-  if (step > 0) {
-    clearStatus();
-    step--;
-    renderCurrent();
-  }
-});
-el.next.addEventListener('click', () => {
-  if (activePattern && step < activePattern.shots.length + 1) {
-    clearStatus();
-    step++;
-    renderCurrent();
-  }
-});
+el.prev.addEventListener('click', () => goToStep(Math.max(2, step - 1)));
+el.next.addEventListener('click', () => goToStep(step + 1));
+el.reveal.addEventListener('click', () => goToStep(2));
+el.hide.addEventListener('click', () => goToStep(0));
+el.overview.addEventListener('click', () => goToStep(1));
 el.play.addEventListener('click', () => {
-  startPlayback();
+  if (playbackFinished) goToStep(0);
+  else if (playState) goToStep(step);
+  else startPlayback();
 });
 el.restoreLine.addEventListener('click', () => {
-  if (!puzzle) return;
+  if (!puzzle || drag) return;
   activePattern = puzzle.pattern;
   activeOpeningPlacement = 'solver';
-  drag = null;
-  clearStatus();
-  if (step > activePattern.shots.length + 1) step = activePattern.shots.length + 1;
-  renderCurrent();
+  goToStep(step);
 });
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowLeft') el.prev.click();
-  if (e.key === 'ArrowRight') el.next.click();
+  if ((e.target as Element).closest('input, textarea, select, [contenteditable]')) return;
+  if (e.target === el.table && step === 0 && puzzle && activePattern && !drag) {
+    const moves: Record<string, Vec> = {
+      ArrowLeft: { x: -1, y: 0 }, ArrowRight: { x: 1, y: 0 },
+      ArrowUp: { x: 0, y: -1 }, ArrowDown: { x: 0, y: 1 }, Enter: { x: 0, y: 0 },
+    };
+    const move = moves[e.key];
+    const ctm = el.table.querySelector('svg')?.getScreenCTM();
+    if (move && ctm) {
+      e.preventDefault();
+      // Map screen directions into table directions, including portrait rotation.
+      const local = new DOMPoint(move.x, move.y, 0, 0).matrixTransform(ctm.inverse());
+      const scale = (e.shiftKey ? 0.25 : 1) / (Math.hypot(local.x, local.y) || 1);
+      const cue = activeOpeningPlacement === 'player'
+        ? activePattern.shots[0].cuePos : { x: TABLE_W / 2, y: TABLE_H / 2 };
+      commitOpeningCue(clampedOpeningCue({ x: cue.x + local.x * scale, y: cue.y - local.y * scale }), 0);
+      return;
+    }
+  }
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault();
+    (e.key === 'ArrowLeft' ? el.prev : el.next).click();
+  }
 });
 
 const hash = new URLSearchParams(window.location.hash.slice(1));
