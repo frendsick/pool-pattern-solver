@@ -305,13 +305,13 @@ export function tracePath(
   options: TraceOptions = {},
 ): TraceResult {
   const { maxRails = 4, curve, sidespin = 0 } = options;
-  let pos = { ...start };
+  let pos = { x: start.x, y: start.y };
   let dir = norm(dir0);
   // Slide-phase vertices still ahead (absolute); mirrored with dir on rebounds.
   let pending: Vec[] = curve ? curve.offsets.map((o) => add(start, o)) : [];
   let remaining = totalDist;
   let rails = 0;
-  const points: Vec[] = [{ ...pos }];
+  const points: Vec[] = [{ x: pos.x, y: pos.y }];
 
   while (remaining > 1e-6) {
     // Current straight piece: to the next slide vertex, then along dir.
@@ -363,7 +363,7 @@ export function tracePath(
 
     const tStop = Math.min(horizon, tBall, tPocket);
     pos = add(pos, scale(segDir, tStop));
-    points.push({ ...pos });
+    points.push({ x: pos.x, y: pos.y });
     remaining -= tStop;
 
     if (tPocket <= tStop + 1e-9 && tPocket <= tBall) {
