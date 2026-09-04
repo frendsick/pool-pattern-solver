@@ -35,11 +35,13 @@ Modules grouped by layer, lowest (no project dependencies) first. Everything is 
 | `solver.ts` | 464 | Beam search over Patterns. `solve`, `solveFromCue`, `previewLegFromCue`, `expandNodes`, `finalize`. The orchestrator. | `geometry`, `table`, `shots`, `skill`, `zone`, `value`, `route`, `seed`, `explain` |
 | `explain.ts` | 65 | Turns a `PlannedShot` into one human-readable sentence. | `geometry`, `shots`, `skill`, `solver`(types) |
 | `generator.ts` | 110 | Solver-validated layout generation: rejection-sample positions, `solve`, accept on score. `mulberry32` seeded RNG. | `geometry`, `table`, `skill`, `solver`, `shots` |
+| `generator.worker.ts` | 9 | Runs the existing generator in a Web Worker. | `generator`, `generation` |
+| `generation.ts` | 50 | Worker message types and pattern transfer. Sends backward grids and restores zone lookup functions and the surface cache. | `generator`(types), `skill`(types), `value` |
 | `interaction.ts` | 102 | Hit-testing & clamping for drag: point-in-polygon, legal cue position, `wholeTablePolygon`. | `geometry`, `table` |
 | `scene.ts` | 162 | Builds a `Scene` (one Pattern step) for the renderer: gathers window polygons, paths, ghosts. Shared by app and snapshot tool. | `geometry`, `table`, `skill`, `solver`, `zone`, `render`, `interaction` |
 | `render.ts` | 199 | Pure SVG renderer + `svgToTablePoint` inverse mapping. No DOM events. | `geometry`, `table` |
 | `playback.ts` | 165 | Kinematic shot replay (ADR-0006): maps animation time `t` to ball positions along the solver's already-traced geometry under one rolling-friction constant. Pure, no DOM/time. | `geometry`, `shots`, `solver`(types) |
-| `main.ts` | 407 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), the per-shot `requestAnimationFrame` playback loop, calls scene/render. | `skill`, `generator`, `geometry`, `table`, `solver`, `scene`, `render`, `playback`, `interaction` |
+| `main.ts` | 407 | App entry: DOM wiring, puzzle lifecycle, step navigation, drag handlers (opening cue + alternative leave), the per-shot `requestAnimationFrame` playback loop, calls scene/render. | `skill`, `generation`, `generator`(types), `geometry`, `table`, `solver`, `scene`, `render`, `playback`, `interaction` |
 
 ### Dependency layering
 
@@ -202,7 +204,11 @@ it. The 9 is biased toward the foot spot (it racks center and rarely gets cleanl
 
 ```
 main.ts (DOM ready)
-   newPuzzle(seed) ─► generatePuzzle ─► {layout, pattern}
+   newPuzzle(seed) ─► generator.worker.ts ─► generatePuzzle
+        │                  │
+        │          {pattern, layout, backward grids}
+        │                  │
+        ◄── generation.ts restores zone gates and caches the grids
         │
    renderCurrent() ─► sceneForStep(pattern, step)  [scene.ts]
         │                 gathers window polygons (zonePolygons),

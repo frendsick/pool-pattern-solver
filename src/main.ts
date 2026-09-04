@@ -1,6 +1,7 @@
 import { INTERMEDIATE } from './skill';
-import { generatePuzzle } from './generator';
 import type { GeneratedPuzzle } from './generator';
+import { unpackPuzzle } from './generation';
+import type { GenerationRequest, PuzzleMessage } from './generation';
 import { Vec, dist } from './geometry';
 import { BALL_R } from './table';
 import { previewLegFromCue, solveFromCue } from './solver';
@@ -64,6 +65,7 @@ let activeOpeningPlacement: OpeningPlacement = 'solver';
 let step = 0; // 0 = first-look layout, 1 = overview, 2..N+1 = shots
 let drag: DragState | null = null;
 let statusCaption: string | null = null;
+let generationWorker: Worker | null = null;
 
 // Per-shot real-time playback (issue #19): a rAF loop walks playback.ts and
 // rebuilds a bare Scene per frame. Null whenever the diagram is at rest.
@@ -143,18 +145,18 @@ function renderCurrent(): void {
 // Button enabled-state, factored out so stopPlayback can restore it without
 // re-rendering (which would repaint planning overlays over the frozen leave).
 function updateControls(): void {
-  if (!puzzle || !activePattern) return;
-  const n = activePattern.shots.length;
+  const unavailable = !puzzle || !activePattern;
+  const n = activePattern?.shots.length ?? 0;
   const playing = playState !== null;
-  el.prev.disabled = playing || step === 0;
-  el.next.disabled = playing || step === n + 1;
+  el.prev.disabled = unavailable || playing || step === 0;
+  el.next.disabled = unavailable || playing || step === n + 1;
   // Play is present always but inert off shot steps (layout/overview) and
   // while a shot is already playing.
-  el.play.disabled = playing || currentShotIndex() === null;
+  el.play.disabled = unavailable || playing || currentShotIndex() === null;
   el.newLayout.disabled = playing;
   el.ballCount.disabled = playing;
   el.restoreLine.disabled =
-    playing || !(drag?.kind === 'opening' || activePattern !== puzzle.pattern);
+    unavailable || playing || !(drag?.kind === 'opening' || activePattern !== puzzle?.pattern);
 }
 
 function clearStatus(): void {
@@ -168,24 +170,53 @@ function showStatus(message: string): void {
 
 function newPuzzle(seed: number): void {
   const ballCount = selectedBallCount();
+  generationWorker?.terminate();
+  generationWorker = null;
   stopPlayback();
   clearStatus();
+  if (drag) el.table.releasePointerCapture(drag.pointerId);
+  drag = null;
+  puzzle = null;
+  activePattern = null;
+  activeOpeningPlacement = 'solver';
+  step = 0;
+  el.table.replaceChildren();
+  el.table.setAttribute('aria-busy', 'true');
+  el.stepLabel.textContent = '';
+  el.score.textContent = '';
   el.caption.textContent = 'Generating layout';
-  el.newLayout.disabled = true;
+  updateControls();
   window.location.hash = `s=${seed}&n=${ballCount}`;
-  setTimeout(() => {
-    puzzle = generatePuzzle(seed, ballCount, INTERMEDIATE);
-    activePattern = puzzle?.pattern ?? null;
-    activeOpeningPlacement = 'solver';
-    step = 0;
-    drag = null;
-    el.newLayout.disabled = false;
-    if (!puzzle) {
-      el.caption.textContent = 'Could not generate a runnable layout. Try again.';
-      return;
-    }
-    renderCurrent();
-  }, 20);
+  try {
+    const worker = new Worker(new URL('./generator.worker.ts', import.meta.url), { type: 'module' });
+    generationWorker = worker;
+    worker.onmessage = ({ data }: MessageEvent<PuzzleMessage | null>) => {
+      if (generationWorker !== worker) return;
+      finishGeneration(data ? unpackPuzzle(data, INTERMEDIATE) : null);
+    };
+    const fail = () => {
+      if (generationWorker === worker) finishGeneration(null);
+    };
+    worker.addEventListener('error', fail);
+    worker.addEventListener('messageerror', fail);
+    worker.postMessage({ seed, ballCount, skill: INTERMEDIATE } satisfies GenerationRequest);
+  } catch {
+    finishGeneration(null);
+  }
+}
+
+function finishGeneration(result: GeneratedPuzzle | null): void {
+  generationWorker?.terminate();
+  generationWorker = null;
+  puzzle = result;
+  activePattern = puzzle?.pattern ?? null;
+  el.table.setAttribute('aria-busy', 'false');
+  updateControls();
+  if (!puzzle) {
+    el.caption.textContent = 'Could not generate a runnable layout. Try again.';
+    return;
+  }
+  renderCurrent();
 }
 
 function currentShotIndex(): number | null {

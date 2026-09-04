@@ -32,11 +32,20 @@ import { NextValueFn, zoneContext, zoneValue } from './zone';
  */
 const GRID_STEP = 1.5;
 
-export interface ValueSurface {
-  /** Normalized 0..1 lookup; 0 off the table. */
-  at: NextValueFn;
+/** Grid data that can cross a worker boundary without a lookup closure. */
+export interface ValueSurfaceData {
+  grid: Float32Array;
+  nx: number;
+  ny: number;
+  sx: number;
+  sy: number;
   /** Peak RAW value over the grid; 0 means the ball is pottable from nowhere. */
   peak: number;
+}
+
+export interface ValueSurface extends ValueSurfaceData {
+  /** Normalized 0..1 lookup; 0 off the table. */
+  at: NextValueFn;
 }
 
 function lookup(
@@ -93,7 +102,7 @@ function buildSurface(
     }
   }
   if (peak > 0) for (let j = 0; j < grid.length; j++) grid[j] /= peak;
-  return { at: lookup(grid, nx, ny, sx, sy), peak };
+  return { grid, nx, ny, sx, sy, at: lookup(grid, nx, ny, sx, sy), peak };
 }
 
 /**
@@ -152,6 +161,20 @@ const cache = new WeakMap<
   Layout,
   { skill: SkillProfile; surfaces: (ValueSurface | null)[] }
 >();
+
+/** Restore worker grids and cache them for later cue-placement solves. */
+export function restoreSurfaces(
+  layout: Layout,
+  skill: SkillProfile,
+  data: (ValueSurfaceData | null)[],
+): (ValueSurface | null)[] {
+  const surfaces = data.map((s) => s && {
+    ...s,
+    at: lookup(s.grid, s.nx, s.ny, s.sx, s.sy),
+  });
+  cache.set(layout, { skill, surfaces });
+  return surfaces;
+}
 
 /** Per-layout surface cache: solver and renderer share one backward pass. */
 export function surfacesForLayout(
