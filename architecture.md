@@ -215,7 +215,10 @@ main.ts (DOM ready)
         │                 paths, ghost balls for this step
         └─► renderScene(scene) ─► SVG string        [render.ts]
 
-   Navigation:  prev / next step buttons walk the Pattern's shots.
+   Navigation: Reveal opens the first shot. Ball buttons and prev / next select
+     shots without playback. All shows the overview, Hide conceals the Pattern.
+     CSS rotates the table on small portrait screens. SVG screen transforms
+     map pointer input back to table inches in either orientation.
 
    Playback (opt-in, shot steps only):              [playback.ts + main.ts]
      • Play ─► buildPlayback(shot) ─► ShotPlayback {duration, at(t)}
@@ -225,9 +228,10 @@ main.ts (DOM ready)
        cuePos→ghost, then concurrent object-ball-to-pocket + cue carom along
        `path` to `landing`, under one friction-decel constant. Plays once, then
        auto-advances one step to the next shot's static diagram (overlays
-       restored). The final shot stays frozen on its leave. render.ts/scene.ts
-       are untouched (the bare Scene is assembled in main.ts), so the snapshot
-       tool is unaffected.
+       restored). The final shot stays frozen on its leave, with Again returning
+       to the concealed layout. Stop and manual navigation cancel replay.
+       main.ts assembles the bare Scene, so render.ts/scene.ts stay independent
+       of animation and the snapshot tool is unaffected.
 
    Interaction (drag):                              [interaction.ts + main.ts]
      • Opening cue drag  ─► legalCuePosition() + solveFromCue(..., 0, cue)

@@ -24,7 +24,7 @@ function polygonArea(polys: Vec[][]): number {
 }
 
 /**
- * Steps: 0 = bare layout (no cue ball — visualize your own pattern first),
+ * Steps: 0 = concealed layout (only a player-placed cue is shown),
  * 1 = overview (solver's cue placement + faint paths), 2.. = shots 1..n.
  */
 export function originWindowForStep(
@@ -70,7 +70,8 @@ export function sceneForStep(
       altZones: [],
       shot: null,
       ghostPaths: [],
-      cue: null,
+      cue: options.cue ?? null,
+      cueDraggable: options.cue !== undefined,
     };
   }
   if (s === 1) {

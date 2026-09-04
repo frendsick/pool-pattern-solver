@@ -418,19 +418,29 @@ but they affect how users reach and inspect solver decisions:
 - [src/main.ts](../src/main.ts): `MIN_BALLS`, `MAX_BALLS`, `DEFAULT_BALLS`,
   URL hash parsing, step navigation, the selected fixed skill profile, and
   opening Ball in Hand interaction. The first-look layout accepts a click/tap
-  as an exact player-placed Ball in Hand. Once a cue ball is visible, whether
-  solver-placed or player-placed, dragging it adjusts that exact opening
+  as an exact player-placed Ball in Hand without revealing the Pattern.
+  Reveal opens the first shot. Ball buttons select shots directly, All shows
+  the overview, and Hide conceals the Pattern again. The buttons beside Play
+  select the previous or next ball without animation. Once the opening cue is
+  visible, dragging it adjusts that exact opening
   placement and re-solves the active Pattern on release. The opening placement
   path stays in `main.ts`: validate the cue with `legalCuePosition`, then call
   `solveFromCue(..., 0, cue)`. Failed opening placements are non-destructive:
   they keep the current Pattern and step, with a short failure caption.
+  Later cue drags clamp to the previous shot's Position Window, preview the
+  current leg, and re-solve only the remaining shots on release.
 - [src/scene.ts](../src/scene.ts): step semantics, zone display radius,
   primary-zone cap from `windowRef`, and second-choice pocket expansion. Reads
   the resolved `PlannedShot.zone` (and its own obstacles/gate for the alternate
   pockets) rather than rebuilding the gated zone, so it no longer depends on
   value.ts.
 - [src/render.ts](../src/render.ts): SVG scale, rail width, colors, markers,
-  and ball drawing.
+  and ball drawing. Pocket mouths, facings, shelves, and liners are artwork.
+  They do not set solver acceptance or pocket targets. Targeting the physical
+  opening is tracked separately in [issue #33](https://github.com/frendsick/pool-pattern-solver/issues/33).
+- [src/style.css](../src/style.css): the dark theme and responsive ball strip.
+  Small portrait screens rotate the table and keep ball numbers upright.
+  Pointer and keyboard directions use the SVG screen transform in `main.ts`.
 - [src/playback.ts](../src/playback.ts): optional per-shot real-time playback
   (ADR-0006). `buildPlayback(shot)` returns a `ShotPlayback {duration, at(t)}`
   that maps animation time to ball positions ALONG the geometry the solver
@@ -458,7 +468,8 @@ but they affect how users reach and inspect solver decisions:
   owns the rAF loop, rebuilds a bare Scene (planning overlays suppressed) at each
   frame's positions, and plays once. On completion it auto-advances one step to
   the next shot's static planning diagram (overlays restored) and waits for
-  another Play. The final shot has no next shot, so it stays frozen on the leave.
+  another Play. The final shot stays frozen on the leave, with Again returning
+  to the concealed layout. Stop or manual navigation cancels the current replay.
   Because the bare Scene is assembled in `main.ts`, `scene.ts`/`render.ts` stay
   pure and the snapshot tool is unaffected.
 - [src/explain.ts](../src/explain.ts): text thresholds and phrasing for shot

@@ -1,236 +1,108 @@
 :root {
-  --ink: #20242a;
-  --muted: #5e6672;
-  --accent: #b03030;
-  --bg: #f7f5f0;
-  --card: #ffffff;
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #eef2f1;
+  background: #111619;
+  --muted: #a6b3b8;
+  --line: #303c42;
+  --accent: #c3e2d1;
 }
 
-* {
-  box-sizing: border-box;
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; }
+button, select { font: inherit; touch-action: manipulation; }
+button, select {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #202b30;
+  color: inherit;
 }
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--ink);
-  font-family: Georgia, 'Times New Roman', serif;
-}
+button { padding: 10px 14px; cursor: pointer; font-size: 12px; font-weight: 500; white-space: nowrap; }
+button:hover:not(:disabled), select:hover { background: #2b3940; border-color: #748b94; }
+button:disabled { opacity: .45; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button.primary { padding-inline: 22px; background: var(--accent); color: #14251c; border-color: var(--accent); }
+button.primary:hover:not(:disabled) { background: #d9f3e5; }
+button.quiet { background: transparent; border-color: transparent; color: var(--muted); }
+button.quiet:hover:not(:disabled) { background: #202b30; }
+button.icon { width: 44px; padding: 8px; font-size: 17px; flex: none; }
+button.selected { border-color: #9abdac; background: #23382e; color: #eef2f1; }
+#play.finished { width: auto; font-size: 12px; }
 
 #app {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 24px 16px 40px;
-}
-
-header h1 {
-  margin: 0 0 4px;
-  font-size: 30px;
-  letter-spacing: 0.3px;
-}
-
-.subtitle {
-  margin: 0 0 18px;
-  color: var(--muted);
-  font-size: 15px;
-}
-
-.controls {
-  display: flex;
-  align-items: center;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  max-width: 1600px;
+  height: 100dvh;
+  margin: auto;
+  padding: max(24px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left));
   gap: 16px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-  font-family: Arial, Helvetica, sans-serif;
 }
-
-button {
-  font: inherit;
-  font-size: 14px;
-  padding: 8px 14px;
-  border: 1px solid #c8c2b6;
-  border-radius: 6px;
-  background: var(--card);
-  cursor: pointer;
-}
-
-button:hover:not(:disabled) {
-  border-color: #9c9482;
-}
-
-button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-button.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-button.secondary {
-  background: #f6f2e8;
-}
-
-.ball-count {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.ball-count select {
-  font: inherit;
-  font-size: 14px;
-  padding: 7px 10px;
-  border: 1px solid #c8c2b6;
-  border-radius: 6px;
-  background: var(--card);
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.ball-count select:hover {
-  border-color: #9c9482;
-}
-
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-#stepLabel {
-  min-width: 110px;
-  text-align: center;
-  font-size: 14px;
-  color: var(--muted);
-}
-
-.score {
-  margin-left: auto;
-  font-size: 14px;
-  font-weight: bold;
-  color: var(--ink);
-  background: #efe9da;
-  border-radius: 6px;
-  padding: 7px 12px;
-}
-
-.table svg {
-  width: 100%;
-  height: auto;
-  display: block;
-  border-radius: 14px;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
-  touch-action: none;
-}
-
-.cue-ball-draggable {
-  cursor: grab;
-}
-
-.table:active .cue-ball-draggable {
-  cursor: grabbing;
-}
-
+.table-stage { position: relative; min-width: 0; min-height: 0; display: grid; place-items: center; container-type: size; }
+.table { width: 100%; height: 100%; min-width: 0; min-height: 0; border-radius: 16px; touch-action: none; }
+.table svg { display: block; width: 100%; height: 100%; filter: drop-shadow(0 12px 22px #0003); }
+.cue-ball-draggable { cursor: grab; }
+.table:active .cue-ball-draggable { cursor: grabbing; }
 .caption {
-  margin-top: 16px;
-  background: var(--card);
-  border: 1px solid #e3ddd0;
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  margin: 0;
+  padding: 12px 18px;
+  border: 1px solid #ad9771;
   border-radius: 8px;
-  padding: 14px 18px;
-  font-size: 17px;
-  line-height: 1.55;
-  min-height: 56px;
+  background: #302b24;
+  color: #f7e9c9;
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.caption:empty { display: none; }
+
+/* Equal outer columns keep the ball strip centered independently of the picker. */
+.controls { display: grid; grid-template-columns: minmax(124px, 1fr) minmax(0, max-content) minmax(124px, 1fr); align-items: center; gap: 16px; min-width: 0; }
+.ball-count { grid-column: 1; justify-self: start; display: flex; align-items: center; gap: 10px; color: #f3f6f5; font-size: 12px; font-weight: 500; white-space: nowrap; }
+.ball-count select { min-width: 54px; padding: 6px 8px; background: #10191e; color: #f3f6f5; border-color: #8a9fa9; }
+.ball-strip { grid-column: 2; justify-self: center; max-width: 100%; display: flex; align-items: center; justify-content: center; gap: 14px; min-width: 0; }
+.shot-selection { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.strip-actions, .strip-playback { display: flex; align-items: center; gap: 4px; flex: none; }
+.strip-actions { gap: 8px; }
+.shot-strip { display: flex; gap: 6px; min-width: 0; overflow-x: auto; padding: 4px; }
+.shot-link { display: flex; align-items: center; justify-content: center; flex: none; width: 44px; padding: 6px; background: transparent; border-color: transparent; }
+.ball-chip { display: inline-grid; place-items: center; width: 26px; height: 26px; border: 1px solid #ffffff20; background: #d6b348; color: #171e22; border-radius: 50%; font-size: 12px; font-weight: 700; }
+.ball-2 { background: #3e6abe; color: white; }
+.ball-3 { background: #c14b42; color: white; }
+.ball-4 { background: #815bb0; color: white; }
+.ball-5 { background: #cc7935; color: white; }
+.ball-6 { background: #3b8b62; color: white; }
+.ball-7 { background: #904a4c; color: white; }
+.ball-8 { background: #10181d; color: white; }
+.ball-9 { background: linear-gradient(#f0eee3 25%, #d6b348 25% 75%, #f0eee3 75%); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+@media (orientation: landscape) and (max-height: 650px) {
+  #app { padding: max(8px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); gap: 8px; }
 }
 
-/* ---- Mobile: landscape table that fills the screen, stacked column ---------- */
-/* Gated on `pointer: coarse` so desktop (even in a narrow window) is untouched.   */
-/* Layout is a single column: caption on top (tall screens only), the table in the */
-/* middle, controls below — no overlays, the table keeps its desktop orientation.  */
-@media (pointer: coarse) {
-  #app {
-    display: flex;
-    flex-direction: column;
-    max-width: none;
-    margin: 0;
-    padding: 0;
-    height: 100dvh;
-    overflow: hidden;
-  }
-
-  /* Strip the page chrome so the table owns the middle of the screen. */
-  header {
-    display: none;
-  }
-
-  /* The table takes all leftover height; the SVG is contained (keeps its 2:1
-     landscape aspect, like desktop) and centered. */
-  .table {
-    order: 2;
-    flex: 1;
-    min-height: 0;
-    display: grid;
-    place-items: center;
-    padding: 8px;
-    background: var(--bg);
-  }
-
-  .table svg {
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: 100%;
-    border-radius: 8px;
-    box-shadow: none;
-  }
-
-  /* Controls: a normal block below the table with comfortable tap targets. */
-  .controls {
-    order: 3;
-    flex: none;
-    margin: 0;
-    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
-    justify-content: center;
-    gap: 10px;
-    background: var(--bg);
-    border-top: 1px solid rgba(0, 0, 0, 0.12);
-  }
-
-  .controls button,
-  .ball-count select {
-    padding: 12px 16px;
-    font-size: 15px;
-  }
-
-  .score {
-    margin-left: 0;
-  }
-
-  /* Caption above the table — hidden by default; only shown when the screen is
-     tall enough to fit it without squeezing the table (see min-height rule). */
-  .caption {
-    display: none;
-    order: 1;
-    flex: none;
-    margin: 0;
-    border: 0;
-    border-radius: 0;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.12);
-    padding: calc(10px + env(safe-area-inset-top)) 14px 10px;
-    font-size: 14px;
-    line-height: 1.4;
-    min-height: 0;
-  }
+/* On narrow screens, keep shot choices above the picker and playback controls. */
+@media (max-width: 699px) {
+  .controls { grid-template-columns: max-content minmax(0, 1fr); gap: 8px; }
+  .ball-strip { display: contents; }
+  .shot-selection { grid-column: 1 / -1; grid-row: 1; justify-self: center; max-width: 100%; gap: 4px; }
+  .ball-count { grid-column: 1; grid-row: 2; flex-direction: column; align-items: flex-start; gap: 2px; font-size: 11px; }
+  .strip-actions { grid-column: 2; grid-row: 2; justify-self: end; }
+  .shot-strip { gap: 2px; }
 }
 
-/* Only bring the explanation back when there's vertical room for it to sit above
-   the table nicely rather than crowding it. */
-@media (pointer: coarse) and (min-height: 640px) {
-  .caption {
-    display: block;
-  }
+/* Rotate only the diagram. SVG screen transforms also map touch coordinates. */
+@media (orientation: portrait) and (max-width: 1000px) {
+  #app { gap: 8px; padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .table { position: relative; width: min(100cqw, calc(100cqh * 64 / 114)); height: auto; aspect-ratio: 64 / 114; }
+  .table svg { position: absolute; left: 50%; top: 50%; width: 178.125%; height: 56.1403508772%; transform: translate(-50%, -50%) rotate(90deg); }
+  .table svg text { transform-box: fill-box; transform-origin: center; transform: rotate(-90deg); }
 }
