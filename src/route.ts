@@ -29,6 +29,7 @@ import {
   caromLocus,
 } from './shots';
 import {
+  ExitStep,
   SkillProfile,
   distanceSigma,
   directionSigma,
@@ -172,6 +173,11 @@ interface PathSample {
   inBand: boolean;
 }
 
+/** Pocket-independent geometry and ease. Blocked samples split usable runs. */
+interface RouteSample extends ExitStep {
+  blocked?: boolean;
+}
+
 interface Interval {
   s0: number;
   s1: number;
@@ -214,11 +220,9 @@ function exactCurveSamples(
   sidespin: Sidespin,
   dir: Vec,
   obstacles: Vec[],
-  zc: ZoneContext,
   skill: SkillProfile,
-): PathSample[] {
-  const out: PathSample[] = [];
-  const ghost = zoneGhost(zc);
+): RouteSample[] {
+  const out: RouteSample[] = [];
   for (let travel = WALK_STEP; travel <= MAX_ROUTE; travel += WALK_STEP) {
     const curve = caromCurve(g, type, travel);
     if (!curve) break;
@@ -226,28 +230,23 @@ function exactCurveSamples(
     const dirAt = pathEndDir(tr.points, dir);
     if (tr.outcome !== 'ok') {
       out.push({
-        s: travel,
-        p: tr.end,
+        travel,
+        point: tr.end,
         rails: tr.rails,
         dirAt,
-        v: 0,
-        eff: 0,
-        inBand: false,
+        ease: 0,
+        blocked: true,
       });
       continue;
     }
-    const p = tr.end;
-    const v = zoneValue(p, zc, skill);
     const railDist = firstRailDist(tr.points, tr.rails);
     const ease = routeEase(g, type, sidespin, travel, tr.rails, railDist, skill);
     out.push({
-      s: travel,
-      p,
+      travel,
+      point: tr.end,
       rails: tr.rails,
       dirAt,
-      v,
-      eff: sidespin !== 0 && tr.rails === 0 ? 0 : v * ease,
-      inBand: railExcluded(p, norm(sub(ghost, p)), LANDING_RAIL_INSET),
+      ease,
     });
   }
   return out;
@@ -258,10 +257,9 @@ function samplePath(
   type: ShotType,
   sidespin: Sidespin,
   obstacles: Vec[],
-  zc: ZoneContext,
   skill: SkillProfile,
   exactCurves = false,
-): PathSample[] | null {
+): RouteSample[] | null {
   const locus = caromLocus(g, type);
   if (!locus) return null;
   const dir = departureDir(g, type);
@@ -271,24 +269,31 @@ function samplePath(
     sidespin,
   });
   if ((exactCurves || tr.outcome !== 'ok') && caromCurve(g, type, MAX_ROUTE)) {
-    return exactCurveSamples(g, type, sidespin, dir, obstacles, zc, skill);
+    return exactCurveSamples(g, type, sidespin, dir, obstacles, skill);
   }
-  const out: PathSample[] = [];
-  const ghost = zoneGhost(zc);
   const firstSeg =
     tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
-  for (const st of walkExit(
+  return Array.from(walkExit(
     tr.points, locus.eta, firstSeg, g, type, sidespin, skill, WALK_STEP, true,
-  )) {
-    const v = zoneValue(st.point, zc, skill);
-    out.push({
+  ));
+}
+
+function scoreSamples(
+  samples: RouteSample[],
+  sidespin: Sidespin,
+  zc: ZoneContext,
+  skill: SkillProfile,
+): PathSample[] {
+  const ghost = zoneGhost(zc);
+  return samples.map((st) => {
+    const v = st.blocked ? 0 : zoneValue(st.point, zc, skill);
+    return {
       s: st.travel, p: st.point, rails: st.rails, dirAt: st.dirAt,
       v,
       eff: sidespin !== 0 && st.rails === 0 ? 0 : v * st.ease,
-      inBand: railExcluded(st.point, norm(sub(ghost, st.point)), LANDING_RAIL_INSET),
-    });
-  }
-  return out;
+      inBand: !st.blocked && railExcluded(st.point, norm(sub(ghost, st.point)), LANDING_RAIL_INSET),
+    };
+  });
 }
 
 function findIntervals(
@@ -690,6 +695,17 @@ export function routeCandidates(
 ): RouteLanding[] {
   const out: RouteLanding[] = [];
   const stoppable = g.cut < STOP_MAX_CUT;
+  // A route's geometry is shared by every pocket. Keep scoring in target order
+  // because each zone memoizes onward control from its first sampled position.
+  const paths = new Map<string, RouteSample[] | null>();
+  const samplesForTarget = (type: ShotType, sidespin: Sidespin, zc: ZoneContext) => {
+    const key = `${type}:${sidespin}`;
+    if (!paths.has(key)) {
+      paths.set(key, samplePath(g, type, sidespin, obstacles, skill, lenient));
+    }
+    const path = paths.get(key);
+    return path ? scoreSamples(path, sidespin, zc, skill) : null;
+  };
 
   interface Sampled {
     t: ZoneTarget;
@@ -712,7 +728,7 @@ export function routeCandidates(
     for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
       const dir = departureDir(g, type);
       if (!dir) continue;
-      const neutral = samplePath(g, type, 0, obstacles, t.zc, skill, lenient);
+      const neutral = samplesForTarget(type, 0, t.zc);
       if (!neutral) continue;
       for (const q of neutral) {
         if (!lenient && q.inBand) continue;
@@ -724,7 +740,7 @@ export function routeCandidates(
       if (neutralUsable) continue;
       for (const sidespin of SIDESPINS) {
         if (sidespin === 0) continue;
-        const samples = samplePath(g, type, sidespin, obstacles, t.zc, skill, lenient);
+        const samples = samplesForTarget(type, sidespin, t.zc);
         if (!samples) continue;
         for (const q of samples) {
           if (!lenient && q.inBand) continue;
