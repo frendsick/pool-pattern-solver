@@ -6,6 +6,8 @@ import { Vec, vec, norm } from './geometry';
 export const TABLE_W = 100;
 export const TABLE_H = 50;
 export const BALL_R = 1.125;
+/** Minimum cue-center distance from an obstacle ball's center. */
+export const CUE_OBSTACLE_CLEARANCE = 2 * BALL_R + 0.05;
 
 export type PocketId = 'BL' | 'BR' | 'TL' | 'TR' | 'BS' | 'TS';
 

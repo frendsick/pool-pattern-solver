@@ -57,6 +57,7 @@ describe('cue placement legality', () => {
     expect(legalCuePosition(vec(MIN_X, MIN_Y), balls)).toBe(true);
     expect(legalCuePosition(vec(MIN_X - 0.1, MIN_Y), balls)).toBe(false);
     expect(legalCuePosition(vec(25 + 2 * BALL_R, 25), balls)).toBe(false);
+    expect(legalCuePosition(vec(25 + 2 * BALL_R + 0.03, 25), balls)).toBe(false);
     expect(legalCuePosition(vec(25 + 2 * BALL_R + 0.1, 25), balls)).toBe(true);
   });
 
