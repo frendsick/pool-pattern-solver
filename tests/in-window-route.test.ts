@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { vec } from '../src/geometry';
-import { Layout } from '../src/table';
+import { beforeAll, describe, it, expect } from 'vitest';
+import { distPointSegment, vec } from '../src/geometry';
+import { CUE_OBSTACLE_CLEARANCE, Layout } from '../src/table';
 import { INTERMEDIATE } from '../src/skill';
-import { solve } from '../src/solver';
+import { previewLegFromCue, solve, solveFromCue } from '../src/solver';
+import { originWindowForStep } from '../src/scene';
+import { clampCuePosition, legalCuePosition, pointInPolygons } from '../src/interaction';
+import { zoneValue } from '../src/zone';
 
 // Feedback (seed 775832494, n=9, round 23): on the 7 the cue is already on the
 // 8's line, so a low touch that stays INSIDE the 8's window the whole way is
@@ -30,12 +33,43 @@ describe('prefer an in-window touch over a long rail-follow that leaves the wind
       { num: 9, pos: vec(25.4, 5.1) },
     ],
   };
+  let pattern: NonNullable<ReturnType<typeof solve>>;
+  beforeAll(() => {
+    pattern = solve(layout, INTERMEDIATE)!;
+    expect(pattern).not.toBeNull();
+  }, 60_000);
+
+  it('excludes the 4-ball clearance ring and clamps to a playable continuation (#29)', () => {
+    const cue = vec(50, 8.08);
+    const origin = originWindowForStep(pattern, 4, INTERMEDIATE);
+    const balls = layout.balls.slice(2);
+    const zone = pattern.shots[1].zone!;
+
+    expect(zoneValue(cue, zone, INTERMEDIATE)).toBe(0);
+    expect(solveFromCue(layout, INTERMEDIATE, 2, cue)).toBeNull();
+    expect(pointInPolygons(cue, origin)).toBe(false);
+    expect(legalCuePosition(cue, balls)).toBe(false);
+    expect(pointInPolygons(pattern.shots[2].cuePos, origin)).toBe(true);
+    for (const poly of origin) for (let i = 0; i < poly.length; i++) {
+      for (const obstacle of zone.obstacles) {
+        expect(distPointSegment(obstacle, poly[i], poly[(i + 1) % poly.length]))
+          .toBeGreaterThanOrEqual(CUE_OBSTACLE_CLEARANCE);
+      }
+    }
+
+    const clamped = clampCuePosition(cue, origin, balls);
+    expect(clamped).not.toEqual(cue);
+    expect(origin.some((poly) => poly.some((p, i) =>
+      distPointSegment(clamped, p, poly[(i + 1) % poly.length]) < 1e-9,
+    ))).toBe(true);
+    expect(legalCuePosition(clamped, balls)).toBe(true);
+    expect(zoneValue(clamped, zone, INTERMEDIATE)).toBeGreaterThan(0);
+    expect(previewLegFromCue(layout, INTERMEDIATE, 2, clamped, pattern.shots[2].zone!)).not.toBeNull();
+    expect(solveFromCue(layout, INTERMEDIATE, 2, clamped)).not.toBeNull();
+  });
 
   it('plays the 7 with a short in-window route, not a 47" one-rail follow', () => {
-    const pattern = solve(layout, INTERMEDIATE);
-    expect(pattern).not.toBeNull();
-
-    const s7 = pattern!.shots[6];
+    const s7 = pattern.shots[6];
     expect(s7.ball.num).toBe(7);
     // A low-movement route that stays in the 8's window — not the rail loop.
     expect(s7.rails).toBe(0);

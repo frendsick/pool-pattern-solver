@@ -3,8 +3,8 @@
 // on toward the following ball's zone. The solver uses the continuous value
 // `zoneValue` (0 when infeasible); the polygon builder is for rendering only.
 
-import { Vec, add, sub, scale, norm, rotate, dist, cross } from './geometry';
-import { BALL_R, TABLE_W, TABLE_H, MIN_X, MAX_X, MIN_Y, MAX_Y, Pocket, onTable } from './table';
+import { Vec, add, sub, scale, norm, rotate, dist, cross, segmentClearsCircle } from './geometry';
+import { BALL_R, CUE_OBSTACLE_CLEARANCE, TABLE_W, TABLE_H, MIN_X, MAX_X, MIN_Y, MAX_Y, Pocket, onTable } from './table';
 import {
   ShotGeometry,
   ShotType,
@@ -292,7 +292,7 @@ export function zoneValue(c: Vec, z: ZoneContext, skill: SkillProfile): number {
   let obstComfort = 1;
   for (const o of z.obstacles) {
     const d = dist(c, o);
-    if (d < 2 * BALL_R + 0.05) return 0;
+    if (d < CUE_OBSTACLE_CLEARANCE) return 0;
     obstComfort = Math.min(obstComfort, obstacleComfort(d));
   }
   const g = shotGeometry(c, z.ball, z.pocket);
@@ -521,8 +521,13 @@ function buildWindows(
   const land = landing ? landingCell(landing, z.ball, aimBack, halfFan, inner, nr) : null;
 
   // Stitch the mask into lobes: per ray, runs of window cells (broken at any
-  // gap), each extending the one lobe it radially overlaps.
-  const dirAt = (i: number) => dirs[i];
+  // gap), each extending the one lobe it radially overlaps. Sample endpoints
+  // can be clear while the connecting edge crosses an obstacle's clearance
+  // ring, so such edges also split runs and lobes.
+  const pointAt = (i: number, j: number) => add(z.ball, scale(dirs[i], radius(j)));
+  const edgeClear = (a: Vec, b: Vec) => z.obstacles.every(
+    (o) => segmentClearsCircle(a, b, o, CUE_OBSTACLE_CLEARANCE),
+  );
   const done: Lobe[] = [];
   const close = (l: Lobe) => { if (l.outer.length >= 2) done.push(l); };
   let open: Lobe[] = [];
@@ -530,6 +535,13 @@ function buildWindows(
     const runs: [number, number][] = [];
     let lo = -1;
     for (let j = 0; j < nr; j++) {
+      if (lo >= 0 && mask[i][j] && !edgeClear(
+        pointAt(i, j - 1),
+        pointAt(i, j),
+      )) {
+        runs.push([lo, j - 1]);
+        lo = -1;
+      }
       if (mask[i][j]) { if (lo < 0) lo = j; }
       else if (lo >= 0) { runs.push([lo, j - 1]); lo = -1; }
     }
@@ -543,12 +555,14 @@ function buildWindows(
     const used = new Set<number>();
     for (const l of open) {
       const k = runs.findIndex(
-        (run, idx) => !used.has(idx) && run[0] <= l.last[1] && run[1] >= l.last[0],
+        (run, idx) => !used.has(idx) && run[0] <= l.last[1] && run[1] >= l.last[0]
+          && edgeClear(l.outer[l.outer.length - 1], pointAt(i, run[1]))
+          && edgeClear(l.inner[l.inner.length - 1], pointAt(i, run[0])),
       );
       if (k < 0) { close(l); continue; }
       used.add(k);
-      l.outer.push(add(z.ball, scale(dirAt(i), radius(runs[k][1]))));
-      l.inner.push(add(z.ball, scale(dirAt(i), radius(runs[k][0]))));
+      l.outer.push(pointAt(i, runs[k][1]));
+      l.inner.push(pointAt(i, runs[k][0]));
       l.cells += runs[k][1] - runs[k][0] + 1;
       l.last = runs[k];
       l.played = l.played || k === landRun;
@@ -557,8 +571,8 @@ function buildWindows(
     runs.forEach((run, idx) => {
       if (used.has(idx)) return;
       kept.push({
-        outer: [add(z.ball, scale(dirAt(i), radius(run[1])))],
-        inner: [add(z.ball, scale(dirAt(i), radius(run[0])))],
+        outer: [pointAt(i, run[1])],
+        inner: [pointAt(i, run[0])],
         last: run,
         cells: run[1] - run[0] + 1,
         played: idx === landRun,

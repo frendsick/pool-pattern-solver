@@ -163,6 +163,9 @@ These constants define the world in which every shot, zone, collision check,
 and generated layout is interpreted:
 
 - `TABLE_W`, `TABLE_H`, and `BALL_R`: table and ball dimensions.
+- `CUE_OBSTACLE_CLEARANCE`: minimum cue-center distance from an obstacle ball.
+  Shared by zone scoring, window edges, and drag validation. Drag clamping
+  adds a small inset so rounding cannot put the cue inside the clearance ring.
 - `POCKETS`: pocket targets, facings, effective widths, acceptance cones,
   capture radii, and labels.
 - `ACCEPTANCE_NEAR` and `JAW_RANGE`: near-pocket widening of acceptance.
@@ -229,7 +232,8 @@ shot and what window is drawn:
   morphological closing of the in-bar (core) region: shallow, still-playable
   below-bar gaps bracketed by core (along a ray or across the fan) are filled,
   so a stripey fan becomes one uniform window, but weak dips, dead spots, and
-  the outer feasible fringe are not painted.
+  the outer feasible fringe are not painted. Runs and lobes also split when
+  an edge between valid samples would cross an obstacle's clearance ring.
 - `BRIDGE_RELATIVE`: the drawn-window closing threshold for below-bar dips.
   It controls how close a feasible dip must remain to the window bar before
   the renderer may bridge it into one clamped drag polygon.

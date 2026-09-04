@@ -1,5 +1,5 @@
 import { Vec, add, clamp, dist, scale, sub } from './geometry';
-import { Ball, BALL_R, MAX_X, MAX_Y, MIN_X, MIN_Y, onTable } from './table';
+import { Ball, CUE_OBSTACLE_CLEARANCE, MAX_X, MAX_Y, MIN_X, MIN_Y, onTable } from './table';
 
 const EPS = 0.01;
 
@@ -64,7 +64,7 @@ function clampToPolygons(p: Vec, polygons: Vec[][]): Vec {
 
 export function clampCuePosition(p: Vec, polygons: Vec[][], balls: Ball[]): Vec {
   let q = clampToPolygons(p, polygons);
-  const minDist = 2 * BALL_R + EPS;
+  const minDist = CUE_OBSTACLE_CLEARANCE + EPS;
   for (let iter = 0; iter < 6; iter++) {
     let moved = false;
     for (const b of balls) {
@@ -82,8 +82,7 @@ export function clampCuePosition(p: Vec, polygons: Vec[][], balls: Ball[]): Vec 
 
 export function legalCuePosition(p: Vec, balls: Ball[]): boolean {
   if (!onTable(p)) return false;
-  const minDist = 2 * BALL_R + EPS;
-  return balls.every((b) => dist(p, b.pos) >= minDist - 1e-9);
+  return balls.every((b) => dist(p, b.pos) >= CUE_OBSTACLE_CLEARANCE);
 }
 
 export function pointInPolygons(p: Vec, polygons: Vec[][]): boolean {
