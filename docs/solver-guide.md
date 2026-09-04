@@ -31,9 +31,15 @@ The runtime flow is:
 
 1. [src/main.ts](../src/main.ts) reads the URL hash, selected ball count, and
    fixed skill profile.
-2. [src/generator.ts](../src/generator.ts) rejection-samples object-ball
-   layouts and calls the solver. A generated puzzle is accepted only after a
-   complete pattern is found, with fallback to the best sampled pattern.
+2. [src/generator.worker.ts](../src/generator.worker.ts) runs
+   [src/generator.ts](../src/generator.ts) off the main thread. It
+   rejection-samples object-ball layouts and calls the solver. A generated
+   puzzle is accepted only after a complete pattern is found, with fallback
+   to the best sampled pattern.
+   [src/generation.ts](../src/generation.ts) sends the resolved pattern and
+   backward grids to the UI, then restores the zone lookup functions and
+   surface cache without another backward pass. A new request terminates the
+   previous worker. Only the current worker can replace the displayed puzzle.
 3. [src/solver.ts](../src/solver.ts) solves the forced 9-ball order. It does
    not choose ball order. It chooses ball-in-hand placement, pocket choices,
    shot types, routes, and position-zone landings.
