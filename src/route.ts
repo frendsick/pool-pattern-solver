@@ -633,7 +633,7 @@ export function finalSafetyRoute(
       if (score > bestScore + 1e-9 || (score > bestScore - 1e-9 && rank < bestRank)) {
         best = {
           pocket, g, type, sidespin: 0, potProb, noScratch,
-          path: tr.points, landing: tr.end, travel, rails: tr.rails,
+          path: tr.points, landing: type === 'stop' ? g.ghost : tr.end, travel, rails: tr.rails,
         };
         bestScore = score;
         bestRank = rank;

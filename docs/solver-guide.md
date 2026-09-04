@@ -336,7 +336,9 @@ and position expectation:
 - `finalSafetyRoute`: the final ball's Route. It has no next Position Window,
   so it is chosen for safety by enumerating every open pocket x shot type at
   minimal natural travel (`minCueTravel`, a soft position-free stroke). Stop is
-  offered only on a near-straight cut. The route maximizes
+  offered only on a near-straight cut and lands at the contact point, as it
+  does earlier in the pattern. Its forward trace estimates scratch risk from
+  residual roll and does not move the intended landing. The route maximizes
   `P(pot) x P(no scratch)`, tie-breaking toward the easiest shot type
   (`FINAL_TYPE_ORDER`). Scratch is priced through the same `pocketRisk`
   machinery as mid-rack scratch (a route whose trace enters a pocket is floored

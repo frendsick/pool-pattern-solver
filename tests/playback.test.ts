@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { vec, dist, distPointSegment } from '../src/geometry';
 import { Layout, pocketById, BALL_R } from '../src/table';
 import { INTERMEDIATE } from '../src/skill';
-import { solve } from '../src/solver';
+import { solve, solveFromCue } from '../src/solver';
 import type { PlannedShot } from '../src/solver';
 import { buildPlayback } from '../src/playback';
 
@@ -156,6 +156,22 @@ describe('shot playback (issue #19)', () => {
       if (postContact) expect(dist(st.cue, shot.landing!)).toBeLessThan(0.05);
     }
     expect(dist(pb.at(pb.duration + 1).cue, shot.landing!)).toBeCloseTo(0, 6);
+  });
+
+  it('keeps the cue at contact on a solved final nine-ball stop shot', () => {
+    const layout: Layout = { seed: 0, balls: [{ num: 9, pos: vec(50, 25) }] };
+    const pattern = solveFromCue(layout, INTERMEDIATE, 0, vec(50, 8))!;
+    expect(pattern).not.toBeNull();
+    const shot = pattern.shots[0];
+    expect(shot.type).toBe('stop');
+    const pb = buildPlayback(shot);
+
+    for (let k = 0; k <= 200; k++) {
+      const st = pb.at((pb.duration * k) / 200);
+      const postContact = st.object === null || dist(st.object, shot.ball.pos) > 0.01;
+      if (postContact) expect(dist(st.cue, shot.ghost)).toBeLessThan(1e-6);
+    }
+    expect(shot.landing).toEqual(shot.ghost);
   });
 
   it('does not let the caroming cue overtake the ball it just potted (90° rule)', () => {
