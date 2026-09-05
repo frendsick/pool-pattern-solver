@@ -97,9 +97,8 @@ describe('full 9-ball rack', () => {
     const pattern = solve({ seed: 15, balls: rack }, INTERMEDIATE);
     expect(pattern).not.toBeNull();
     expect(pattern!.shots.length).toBe(9);
-    // Window-length control is now included in eNext, so full-rack products
-    // are stricter than the old pot-only-ish scale.
-    expect(pattern!.score).toBeGreaterThan(0.05);
+    // Rail energy and pot speed compound over the full rack.
+    expect(pattern!.score).toBeGreaterThan(0.04);
     expect(pattern!.shots.map((s) => s.ball.num)).toEqual(
       [1, 2, 3, 4, 5, 6, 7, 8, 9],
     );

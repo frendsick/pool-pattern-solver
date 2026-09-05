@@ -76,24 +76,23 @@ are cue-ball positions where the next ball can be potted and the cue ball can
 still be moved toward what the rest of the rack requires. The drawn zones and
 route search share the same backward-gated value surfaces.
 
-Routes are idealized cue-ball paths. The available shot types are defined in
-[src/shots.ts](../src/shots.ts). Paths use the project's analytic cue-ball
-model: shot type fixes the post-contact departure behavior, travel is the
-speed parameter, cushions use mirror-law rebound, sidespin adjusts cushion
-rebound, and follow/draw paths may include a curved slide phase before natural
-roll.
+Routes use an analytic cue-ball model. Shot type fixes the vertical spin at
+contact, and travel is the chosen geometric path length. A stop requires a
+straight hit. Follow and draw start on the tangent and curve during sliding.
+The required hit and minimum pot pace use the same slide-to-roll energy model
+for both balls.
 
-Sidespin rebound is a diamond-calibrated heuristic, not full ball-cushion
-physics. In `tracePath`, half-maximum sidespin (`0.5`) is calibrated so a
-square long-rail-to-long-rail rebound moves about one diamond from the mirror
-line. Maximum practical sidespin would imply about two diamonds. The modeled
-effect scales by the cue ball's normal component into the cushion, so a square
-attack keeps the full effect and a glancing attack approaches no effect. This
-captures the practical direction of the dropoff, but it deliberately omits the
-real spin/speed-ratio state at cushion contact: spin decay, drag-shot
-intensification, speed removed by object-ball contact, cushion friction details,
-rail-induced spin, and the coupled squirt, swerve, and throw effects of
-sidespin.
+Cushion routes use mirror rebound with a calibrated sidespin adjustment.
+Cushion losses increase the required hit according to the normal component at
+each contact. `traceShot` resolves that hit with the initial curve length.
+Sidespin changes the remaining curve at the cushion and decays per contact.
+The rebound angle and spin decay remain planar approximations. They omit
+rail-induced spin, detailed cushion friction, squirt, swerve, and systematic
+object-ball throw. Their constants require calibration for a particular table.
+
+A scratch requires reaching a cushion opening. The scratch capture disk alone
+does not make the adjacent cloth unplayable. Invalid contact positions and
+traces stopped by the rail limit cannot become planned landings.
 
 The opening shot is special because the player has ball in hand. The solver
 can choose exact cue-ball placement, including placements engineered so the
@@ -140,7 +139,16 @@ reliability, landing spread, and zone feasibility:
 - `typeReliability`: clean execution reliability by shot type.
 - `drawRailRoom`: first-rail room needed for draw and touch-of-low.
 - `handDirEase`: direction-error reduction for routes played from ball in hand.
-- `hitComfort` and `hitMax`: hit-power comfort range and hard ceiling.
+- `hitComfort` and `hitMax`: hit-power comfort range and hard ceiling, in
+  physical equivalent rolling inches. Calibrate these against impact speeds
+  and cloth rolling resistance when changing the energy model.
+
+`potProbability` accepts the object ball's unobstructed roll-out. A faster
+arrival narrows the effective pocket margin. `potPaceFactor` converts the
+pot already priced at minimum pace to the chosen route's actual pace, so the
+route search and onward-control gate use the same adjustment. `FAST_POCKET_WIDTH`
+sets the jaw-width floor as a fraction of the soft-shot margin. It is a
+calibration limit, not measured pocket geometry.
 
 The quadrature samples in [src/skill.ts](../src/skill.ts) also affect solver
 decisions: `DIST_NODES`, `DIST_WEIGHTS`, `DIR_NODES`, and `DIR_WEIGHTS`.
@@ -152,9 +160,9 @@ the single source for what the route search and the onward-control gate used to
 inline separately:
 
 - `routeEase`: a position route's execution price at a chosen travel. It combines
-  reliability x draw rail-room x rail-route x hit-power, 0 below pocket-pace
-  travel. Used by the route search (route.ts) and the gate (zone.ts
-  onwardControl).
+  reliability x draw rail-room x rail-route x hit-power x pot-pace adjustment,
+  zero below the energy required to pot. Used by the route search (route.ts)
+  and the gate (zone.ts onwardControl).
 - `walkExit`: walks a traced exit path off the ghost as a generator, yielding
   one routeEase-priced step per `step` inches. The route search collects all
   steps, while the gate reduces to a running max with early stop. Both share the
@@ -204,17 +212,29 @@ search and zone onward-control checks:
   practical side offset. V1 enumerates no spin plus half-maximum left/right
   spin.
 - `LOW_TOUCH`: how far the touch-of-low action sits between stun and draw.
-- `POCKET_PACE`: minimum object-ball pace assumed by `minCueTravel`.
+- `POCKET_PACE`: object-ball roll-out margin as a multiplier of the
+  ball-to-pocket distance, shared by minimum travel and playback.
 - `SLIDE_ROLL_RATIO`: slide-to-roll friction ratio for curved carom paths.
 - `CURVE_SEGS`: polyline resolution for the slide-phase curve.
-- `rollShare`, `signedRollShare`, `minCueTravel`, and `hitDistance`: not
-  plain constants, but decision formulas that translate shot type, cut angle,
-  ball-to-pocket distance, and travel into forced motion and hit power.
+- `signedRollShare`: the calibrated ratio of aim and tangent coefficients
+  that determines the final carom direction.
+- `SLIDING_DISTANCE_SHARE`, `minCueTravel`, `hitDistance`, and `objectTravel`:
+  one slide-to-roll energy calculation for cue motion, the pot-pace minimum,
+  required impact energy, and object-ball roll-out.
+- `isStraight`: shared eligibility for a stationary stop in routes and zones.
+- `CUSHION_RESTITUTION`, `cushionRetention`, and `pathPowerTravel`: normal
+  cushion losses and the input energy needed to cover a geometric path.
+  The power calculation includes the incoming direction to price an immediate
+  rebound from a starting position against a cushion.
+- `CUSHION_SPIN_RETENTION`: modeled sidespin left after each cushion.
+- `traceShot`: resolves the curve scale with cushion energy losses. Routes
+  that cannot converge are invalid. Used for selected routes and landing
+  error samples.
 - `tracePath`: rebound, collision, scratch, and rail-count semantics. Its
   options object owns `maxRails`, optional curved carom geometry, and
-  `sidespin`. Numeric trace options are intentionally not supported. Sidespin
-  rebound is intentionally local to cushion contact and does not update a
-  persistent spin state between rails.
+  `sidespin`. The rail limit has a distinct outcome. Pocket disks identify
+  openings at the cushion boundary. Sidespin rotates the remaining curve and
+  rolling direction together, then decays before the next contact.
 
 When adding a shot type or sidespin amount, update the cue-ball model,
 skill-profile pricing, route generation, explanation text, docs, and tests
@@ -241,7 +261,6 @@ shot and what window is drawn:
 - `CONTROL_SAT`: value threshold where onward control saturates.
 - `CONTROL_STEP` and `CONTROL_RANGE`: scan resolution and reach for onward
   control exits.
-- `STRAIGHT_CUT`: threshold where stop-shot onward control is considered.
 - `ZONE_RELATIVE` and `ZONE_FLOOR`: quality bar (the in-bar "core") for a point
   to count inside a zone.
 - `zonePeak`, `zoneBar`, and `zonePolygons`/`buildWindows`: the peak-value
@@ -261,6 +280,8 @@ shot and what window is drawn:
   drawn, so a ball cutting clean across shows just the played side, and stray
   islands fall away.
 - `cachedOnwardControl`: memoization quantization for onward-control values.
+  Exact straight shots have a separate key so nearby cuts cannot inherit stop
+  eligibility.
 
 Zone logic affects both scoring and rendering. The route search and displayed
 windows should keep using the same gated `ZoneContext` semantics.
@@ -342,12 +363,14 @@ and position expectation:
   effective-value bars, interval selection, deep-end landing candidates,
   simple-route comparison for redundant rail-follow, and route ease.
 - `expectedNextPot`: landing-spread quadrature used for final position value.
+  Each distance sample resolves its own curve and cushion power. Truncated and
+  invalid traces contribute zero.
 - `pocketRisk`: deterministic scratch-risk penalty for paths near pocket
   mouths.
 - `finalSafetyRoute`: the final ball's Route. It has no next Position Window,
   so it is chosen for safety by enumerating every open pocket x shot type at
   minimal natural travel (`minCueTravel`, a soft position-free stroke). Stop is
-  offered only on a near-straight cut and lands at the contact point, as it
+  offered only on a straight cut and lands at the contact point, as it
   does earlier in the pattern. Its forward trace estimates scratch risk from
   residual roll and does not move the intended landing. The route maximizes
   `P(pot) x P(no scratch)`, tie-breaking toward the easiest shot type
@@ -394,7 +417,9 @@ These parameters affect global pattern selection:
 - `finalize`: appends the last shot and asks `finalSafetyRoute` (route.ts) for
   the final ball's safety Route (it has no next window), stamping its shot type,
   path, and landing instead of a null pot-only shot. The route's `noScratch`
-  multiplies into `Pattern.score`, so a 9 with only scratching routes collapses
+  and pot-pace adjustment multiply into `Pattern.score`. A missing complete
+  final trace advances to the next beam candidate. If none has a valid finish,
+  the layout has no pattern. A 9 with only scratching routes collapses
   the leg and generation rejects the layout on the score threshold.
 
 Only `score` is the reported run-out probability. `sortKey` is private and
@@ -460,12 +485,13 @@ but they affect how users reach and inspect solver decisions:
   carom along the shot's `path` to `landing`. Motion is one rolling-friction
   deceleration constant `DECEL`. Each phase's start speed comes from an existing
   solver quantity: `hitDistance` (approach hit power, floored by `HIT_FLOOR`)
-  and `travel` (cue carom). The object ball's launch speed follows the **90°
+  and path length (cue carom). Cushion energy from `pathPowerTravel` contributes
+  to the approach hit. The object ball's launch speed follows the **90°
   rule** (`vContact·cos(cut)`, Alciatore): at impact it takes the impact-line
   share of the cue's speed, so a fuller hit sends it off faster. This is what
   keeps a near-straight follow from letting the caroming cue overtake the ball
-  it just potted (it is floored at the pocket-reaching pace, `POCKET_PACE` carry
-  past the lip, so a thin soft cut never stalls short). So durations emerge from
+  it just potted. The shared `POCKET_PACE` roll-out multiplier sets its minimum
+  speed, so a thin soft cut never stalls short. Durations emerge from
   distance and hit power. Two motion invariants live in `playback.ts`: `covered`
   freezes the kinematic parabola at the rest-instant `v0/DECEL` (past it the
   parabola turns down and would walk a stopped ball backward, which caused an

@@ -65,7 +65,9 @@ describe('long route through a tiny position lobe', () => {
     );
 
     expect(route).toBeDefined();
-    expect(route!.ease).toBeCloseTo(0.62, 5);
+    // Pace can reduce ease below the stroke's base reliability.
+    expect(route!.ease).toBeGreaterThan(0.6);
+    expect(route!.ease).toBeLessThan(0.62);
     expect(route!.windowFactor).toBeLessThan(0.5);
   });
 });

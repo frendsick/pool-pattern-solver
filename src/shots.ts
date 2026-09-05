@@ -16,7 +16,7 @@ import {
   segmentClearsCircle,
   angleBetween,
 } from './geometry';
-import { BALL_R, TABLE_W, TABLE_H, MIN_X, MAX_X, MIN_Y, MAX_Y, POCKETS, Pocket } from './table';
+import { BALL_R, TABLE_W, TABLE_H, MIN_X, MAX_X, MIN_Y, MAX_Y, POCKETS, Pocket, onTable } from './table';
 
 export type ShotType = 'stop' | 'follow' | 'stun' | 'lowTouch' | 'draw';
 
@@ -28,6 +28,7 @@ export const MAX_MODELED_SIDESPIN = Math.max(...SIDESPINS.map((s) => Math.abs(s)
 const LOW_TOUCH = 0.4;
 
 export interface ShotGeometry {
+  pocket: Pocket;
   /** Unit aim line: object ball -> pocket target. */
   aim: Vec;
   /** Ghost-ball position: where the cue ball center sits at contact. */
@@ -45,6 +46,7 @@ export interface ShotGeometry {
 export function shotGeometry(cue: Vec, ball: Vec, pocket: Pocket): ShotGeometry | null {
   const aim = norm(sub(pocket.target, ball));
   const ghost = sub(ball, scale(aim, 2 * BALL_R));
+  if (!onTable(ghost)) return null;
   const toGhost = sub(ghost, cue);
   const dCueGhost = Math.max(dist(cue, ghost), 1e-6);
   const cueDir = norm(toGhost);
@@ -54,6 +56,7 @@ export function shotGeometry(cue: Vec, ball: Vec, pocket: Pocket): ShotGeometry 
   const perp = sub(cueDir, scale(aim, cosCut));
   const tangent = norm(perp); // zero vector when dead straight
   return {
+    pocket,
     aim,
     ghost,
     cueDir,
@@ -63,6 +66,9 @@ export function shotGeometry(cue: Vec, ball: Vec, pocket: Pocket): ShotGeometry 
     dBallPocket: dist(ball, pocket.target),
   };
 }
+
+/** Only a square hit can transfer all translational motion to the object ball. */
+export const isStraight = (g: ShotGeometry): boolean => g.cut < 1e-6;
 
 /**
  * Cue-ball departure direction off the object ball, per shot type.
@@ -81,7 +87,7 @@ export function departureDir(g: ShotGeometry, type: ShotType): Vec | null {
     case 'stop':
       return null; // no travel by definition
     case 'stun': {
-      if (s < 0.03) return null; // straight: stun degenerates to stop
+      if (isStraight(g)) return null;
       return norm(scale(g.tangent, s));
     }
     case 'follow':
@@ -100,14 +106,6 @@ export function departureDir(g: ShotGeometry, type: ShotType): Vec | null {
  * at least the matching share — you cannot "hit it really slowly" and pot.
  */
 export const POCKET_PACE = 1.25;
-
-/**
- * Roll/draw share MAGNITUDE of the cue ball's post-contact speed along the aim
- * line — the unsigned twin of signedRollShare, which owns the actual values.
- */
-function rollShare(type: ShotType): number {
-  return Math.abs(signedRollShare(type));
-}
 
 /**
  * SIGNED roll share: positive along the aim line (follow), negative against
@@ -135,6 +133,10 @@ export function signedRollShare(type: ShotType): number {
  */
 export const SLIDE_ROLL_RATIO = 0.05;
 const CURVE_SEGS = 6;
+/** Roll-out share of a ball launched without spin, including its initial slide.
+ * https://drdavepoolinfo.com/technical_proofs/TP_4-1.pdf
+ */
+const SLIDING_DISTANCE_SHARE = (25 + 24 * SLIDE_ROLL_RATIO) / 49;
 
 export interface CaromCurve {
   /** Slide-phase polyline, offsets from the contact point (origin excluded). */
@@ -155,6 +157,9 @@ interface CaromUnit {
   eta: number;
 }
 
+// A geometry is fixed for the many travel samples in a route or zone scan.
+const caromUnits = new WeakMap<ShotGeometry, Partial<Record<ShotType, CaromUnit>>>();
+
 /**
  * The 30-degree-rule trajectory (pooltool 30_degree_rule example): off the
  * object ball the cue ball departs ALONG THE TANGENT LINE, then sliding
@@ -165,16 +170,17 @@ interface CaromUnit {
  *   r(τ) = (2q/7)·[ s·(τ − τ²(1−k)/7)·t̂ + (τ²·k·c/7)·â ],  τ ∈ [0,1],
  *   q = |(1−k)·s, k·c|  (slip speed share),  s = sin cut, c = cos cut,
  * after which the ball rolls p·v straight along departureDir, p² the speed
- * share it kept. Every term scales with v², so the SHAPE is speed-invariant:
- * the whole path just scales linearly with the chosen travel.
+ * share it kept. Before cushions, every term scales with v², so the shape
+ * scales linearly with the free-cloth travel equivalent of the impact energy.
  */
 function caromUnit(g: ShotGeometry, type: ShotType): CaromUnit | null {
   const r = signedRollShare(type);
   const s = Math.sin(g.cut);
   const c = Math.cos(g.cut);
-  // Stun slides straight down the tangent; a near-straight shot's slide is
-  // collinear with its carom line — no curve either way.
-  if (r === 0 || s < 0.03) return null;
+  // Stun slides straight down the tangent.
+  if (r === 0) return null;
+  const cached = caromUnits.get(g);
+  if (cached?.[type]) return cached[type];
   const k = (5 * r) / (2 - 2 * r);
   const q = Math.hypot((1 - k) * s, k * c);
   const pts: Vec[] = [];
@@ -194,17 +200,20 @@ function caromUnit(g: ShotGeometry, type: ShotType): CaromUnit | null {
   const dir = departureDir(g, type)!;
   const locus = add(prev, scale(dir, roll));
   const len = Math.hypot(locus.x, locus.y);
-  return { pts, arc, roll, locusDir: scale(locus, 1 / len), eta: len / (arc + roll) };
+  const unit = { pts, arc, roll, locusDir: scale(locus, 1 / len), eta: len / (arc + roll) };
+  caromUnits.set(g, { ...cached, [type]: unit });
+  return unit;
 }
 
 /**
- * The slide-phase curve for a route of the given post-contact travel, ready
- * for tracePath. Null when the path is straight anyway (stop/stun/near-straight).
+ * Slide curve at a given free-cloth travel equivalent, ready for tracePath.
+ * traceShot includes cushion losses in this input. Null for straight paths.
  */
-export function caromCurve(g: ShotGeometry, type: ShotType, travel: number): CaromCurve | null {
+export function caromCurve(g: ShotGeometry, type: ShotType, powerTravel: number): CaromCurve | null {
+  if (Math.sin(g.cut) < 0.03) return null;
   const u = caromUnit(g, type);
-  if (!u || travel <= 1e-6) return null;
-  const L = travel / (u.arc + u.roll);
+  if (!u || powerTravel <= 1e-6) return null;
+  const L = powerTravel / (u.arc + u.roll);
   return { offsets: u.pts.map((p) => scale(p, L)), arc: u.arc * L };
 }
 
@@ -215,41 +224,42 @@ export interface CaromLocus {
 }
 
 /**
- * Because the carom path scales linearly with travel, the landings of ALL
- * travels lie on one straight ray from the ghost (pre-rail). Walking this
- * locus prices every candidate landing exactly with a single trace; rails
- * fold it like any line (exact where the path's own rail contact matches the
- * locus crossing — within a couple of inches, second order in the slide).
+ * Before cushions, landings at all energies lie on one ray from the ghost.
+ * Folding this locus at rails approximates the landings. Cushion losses
+ * change the slide length, so selected routes need exact validation.
  */
 export function caromLocus(g: ShotGeometry, type: ShotType): CaromLocus | null {
   const dir = departureDir(g, type);
   if (!dir) return null;
-  const u = caromUnit(g, type);
+  const u = Math.sin(g.cut) < 0.03 ? null : caromUnit(g, type);
   return u ? { dir: u.locusDir, eta: u.eta } : { dir, eta: 1 };
 }
 
-export function minCueTravel(g: ShotGeometry, type: ShotType): number {
-  if (type === 'stop') return 0; // firm stun, the object ball takes it all
-  const k = rollShare(type);
-  const tan2 = Math.tan(g.cut) ** 2;
-  return (tan2 + k * k) * g.dBallPocket * POCKET_PACE;
+/** Post-contact path distance per inch of impact roll-out energy, without rails. */
+function cueDistanceShare(g: ShotGeometry, type: ShotType): number {
+  if (type === 'stop') return 0;
+  const u = caromUnit(g, type);
+  return u ? 2 * SLIDE_ROLL_RATIO * (u.arc + u.roll)
+    : SLIDING_DISTANCE_SHARE * Math.sin(g.cut) ** 2;
 }
 
-/**
- * Equivalent roll-out distance of the HIT a route demands. The cue ball keeps
- * the tangent share (sin² cut) plus a roll share along the aim line. Follow
- * is powered through controllable top spin (linear k), so long straight-ish
- * follow is a real stroke; draw/low keep the older k² budget because backspin
- * retention is the hard part. Near-straight sideways stun still demands a
- * monster hit, and is priced by SkillProfile.hitComfort/hitMax.
- */
+export function minCueTravel(g: ShotGeometry, type: ShotType): number {
+  return cueDistanceShare(g, type) * minimumHit(g);
+}
+
+function minimumHit(g: ShotGeometry): number {
+  return g.dBallPocket * POCKET_PACE / (SLIDING_DISTANCE_SHARE * Math.cos(g.cut) ** 2);
+}
+
+/** Impact energy in equivalent rolling inches. cueTravel includes cushion losses. */
 export function hitDistance(g: ShotGeometry, type: ShotType, cueTravel: number): number {
-  if (type === 'stop') return 0; // its firm stun is not a powered route
-  const k = rollShare(type);
-  const s2 = Math.sin(g.cut) ** 2;
-  const c2 = Math.cos(g.cut) ** 2;
-  const rollPower = type === 'follow' ? k : k * k;
-  return cueTravel / Math.max(s2 + rollPower * c2, 1e-9);
+  if (type === 'stop') return minimumHit(g);
+  return Math.max(minimumHit(g), cueTravel / Math.max(cueDistanceShare(g, type), 1e-12));
+}
+
+/** Unobstructed object-ball roll-out from the same impact energy as the cue route. */
+export function objectTravel(g: ShotGeometry, type: ShotType, cueTravel: number): number {
+  return hitDistance(g, type, cueTravel) * SLIDING_DISTANCE_SHARE * Math.cos(g.cut) ** 2;
 }
 
 export interface TraceResult {
@@ -257,7 +267,7 @@ export interface TraceResult {
   points: Vec[];
   end: Vec;
   rails: number;
-  outcome: 'ok' | 'ball' | 'scratch';
+  outcome: 'ok' | 'ball' | 'scratch' | 'rail-limit' | 'invalid';
   /** Total distance actually travelled. */
   travelled: number;
 }
@@ -268,11 +278,40 @@ function reflect(dir: Vec, wall: 'x' | 'y'): Vec {
 
 const LONG_RAIL_DIAMOND = TABLE_W / 8;
 const SHORT_RAIL_DIAMOND = TABLE_H / 4;
+/** Effective normal-speed retention. Calibrate for the actual cushions. */
+export const CUSHION_RESTITUTION = 0.82;
+/** Remaining modeled sidespin after each cushion contact. */
+export const CUSHION_SPIN_RETENTION = 0.5;
 
-function rebound(dir: Vec, wall: 'x' | 'y', sidespin: Sidespin): Vec {
+/** Fraction of translational energy retained at this cushion contact. */
+export function cushionRetention(dir: Vec, contact: Vec): number {
+  const normal = Math.abs(contact.x - MIN_X) < 1e-6 || Math.abs(contact.x - MAX_X) < 1e-6
+    ? dir.x : dir.y;
+  return 1 - (1 - CUSHION_RESTITUTION ** 2) * normal ** 2;
+}
+
+/** Free-cloth travel needed for a path. initialDir also prices a rebound at its origin. */
+export function pathPowerTravel(points: Vec[], initialDir: Vec): number {
+  let power = 0;
+  let retention = 1;
+  for (let i = 1; i < points.length; i++) {
+    const d = sub(points[i], points[i - 1]);
+    const length = Math.hypot(d.x, d.y);
+    power += length / retention;
+    const p = points[i];
+    const incoming = length > 1e-9 ? scale(d, 1 / length) : i === 1 ? norm(initialDir) : null;
+    if (incoming && (Math.abs(p.x - MIN_X) < 1e-6 || Math.abs(p.x - MAX_X) < 1e-6 ||
+      Math.abs(p.y - MIN_Y) < 1e-6 || Math.abs(p.y - MAX_Y) < 1e-6)) {
+      retention *= cushionRetention(incoming, p);
+    }
+  }
+  return power;
+}
+
+function rebound(dir: Vec, wall: 'x' | 'y', sidespin: number): Vec {
   const mirrored = reflect(dir, wall);
   if (sidespin === 0) return mirrored;
-  // ponytail: rebound-only heuristic; track spin/speed state if multi-rail fidelity matters.
+  // ponytail: calibrated rebound angle, use coupled cushion friction for measured spin response.
   const tangent = wall === 'x' ? { x: 0, y: 1 } : { x: 1, y: 0 };
   const rightOfTravel = rotate(dir, -Math.PI / 2);
   const tangentPush = dot(rightOfTravel, tangent) * sidespin;
@@ -311,7 +350,13 @@ export function tracePath(
   let pending: Vec[] = curve ? curve.offsets.map((o) => add(start, o)) : [];
   let remaining = totalDist;
   let rails = 0;
+  let spin = sidespin as number;
   const points: Vec[] = [{ x: pos.x, y: pos.y }];
+  if (!onTable(start) || !Number.isFinite(totalDist) || totalDist < 0 ||
+    !Number.isFinite(dir.x) || !Number.isFinite(dir.y) ||
+    (totalDist > 0 && dot(dir, dir) < 0.5)) {
+    return { points, end: pos, rails, outcome: 'invalid', travelled: 0 };
+  }
 
   while (remaining > 1e-6) {
     // Current straight piece: to the next slide vertex, then along dir.
@@ -354,11 +399,17 @@ export function tracePath(
       if (t !== null && t < tBall) tBall = t;
     }
 
-    // Pocket mouths: entering one is a scratch.
+    // A capture disk locates a cushion opening. Cloth inside the disk is
+    // playable until the ball actually reaches that opening.
     let tPocket = Infinity;
-    for (const p of POCKETS) {
-      const t = rayCircleHit(pos, segDir, p.captureCenter, p.captureRadius, horizon);
-      if (t !== null && t < tPocket) tPocket = t;
+    if (tWall <= horizon) {
+      const contact = add(pos, scale(segDir, tWall));
+      for (const p of POCKETS) {
+        if (dot(segDir, p.facing) > 0 && dist(contact, p.captureCenter) <= p.captureRadius) {
+          tPocket = tWall;
+          break;
+        }
+      }
     }
 
     const tStop = Math.min(horizon, tBall, tPocket);
@@ -375,24 +426,56 @@ export function tracePath(
     if (remaining <= 1e-6) break;
 
     if (tWall <= tStop + 1e-9 && wall !== null) {
-      // Cushion rebound: the slide dynamics mirror exactly with the table.
-      rails += 1;
-      if (rails > maxRails) {
-        return { points, end: pos, rails, outcome: 'ok', travelled: totalDist - remaining };
+      // Rotate the remaining slide and roll together at the cushion.
+      if (rails >= maxRails) {
+        return { points, end: pos, rails, outcome: 'rail-limit', travelled: totalDist - remaining };
       }
+      rails += 1;
       const w = wall;
       const wx = pos.x;
       const wy = pos.y;
-      pending = pending.map((p) =>
-        w === 'x' ? { x: 2 * wx - p.x, y: p.y } : { x: p.x, y: 2 * wy - p.y },
-      );
-      dir = rebound(dir, w, sidespin);
+      const mirrored = reflect(segDir, w);
+      const bounced = rebound(segDir, w, spin);
+      const turn = Math.atan2(cross(mirrored, bounced), dot(mirrored, bounced));
+      pending = pending.map((p) => {
+        const reflected = w === 'x' ? { x: 2 * wx - p.x, y: p.y } : { x: p.x, y: 2 * wy - p.y };
+        return add(pos, rotate(sub(reflected, pos), turn));
+      });
+      dir = rotate(reflect(dir, w), turn);
+      spin *= CUSHION_SPIN_RETENTION;
     } else if (pending.length > 0 && tStop >= segLen - 1e-9) {
       pending.shift(); // reached a slide vertex
     }
   }
 
   return { points, end: pos, rails, outcome: 'ok', travelled: totalDist };
+}
+
+/**
+ * Trace a chosen geometric travel, accounting for the hit energy lost at rails.
+ * More energy lengthens the initial slide, so resolve its scale with the path.
+ * Unconverged paths are rejected. This remains a planar cushion approximation.
+ */
+export function traceShot(
+  g: ShotGeometry, type: ShotType, travel: number, obstacles: Vec[],
+  options: { maxRails?: number; sidespin?: Sidespin; directionError?: number } = {},
+): TraceResult & { powerTravel: number; curve?: CaromCurve } {
+  const error = options.directionError ?? 0;
+  const dir = rotate(departureDir(g, type) ?? g.aim, error);
+  let powerTravel = travel;
+  for (let i = 0; ; i++) {
+    const base = caromCurve(g, type, powerTravel);
+    const curve = base ? {
+      offsets: base.offsets.map(p => rotate(p, error)), arc: base.arc,
+    } : undefined;
+    const trace = tracePath(g.ghost, dir, travel, obstacles, { ...options, curve });
+    const required = pathPowerTravel(trace.points, curve?.offsets[0] ?? dir);
+    if (!base || trace.outcome !== 'ok' || Math.abs(required - powerTravel) < 0.01) {
+      return { ...trace, powerTravel: required, curve };
+    }
+    if (i === 7) return { ...trace, outcome: 'invalid', powerTravel: required, curve };
+    powerTravel = required;
+  }
 }
 
 /** True if the object ball has an unobstructed straight path to the pocket. */

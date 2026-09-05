@@ -17,10 +17,9 @@ import {
   ShotType,
   Sidespin,
   shotGeometry,
-  tracePath,
-  caromCurve,
+  traceShot,
 } from './shots';
-import { SkillProfile } from './skill';
+import { SkillProfile, potPaceFactor } from './skill';
 import {
   ZoneContext,
   zoneBar,
@@ -53,7 +52,7 @@ export interface PlannedShot {
   ghost: Vec;
   cutDeg: number;
   potProb: number;
-  /** Route to the next shot; null for the final ball. */
+  /** Cue-ball action, if a route is available. */
   type: ShotType | null;
   sidespin: Sidespin;
   path: Vec[] | null;
@@ -201,7 +200,11 @@ function expandPass(
     // sensitivity included: a natural-angle follow's carom is easy to
     // direct, a long stun's or draw's is not) with the route's ease — type
     // reliability, hit power at this cut, draw rail-room.
-    const curve = caromCurve(c.node.pending.g, c.type, c.travel) ?? undefined;
+    const intendedPath = traceShot(c.node.pending.g, c.type, c.travel, obstacles, {
+      maxRails: 4, sidespin: c.sidespin,
+    });
+    if (intendedPath.outcome !== 'ok') continue;
+    const curve = intendedPath.curve;
     const e =
       expectedNextPot(
         c.node.pending.g.ghost, c.dir, c.travel, c.type, c.rails,
@@ -217,13 +220,7 @@ function expandPass(
     // Pot-only: the next shot's reported pot % must not carry the onward gate.
     const potNext = zoneValue(c.landing, c.zcPot, skill);
     if (potNext <= 0) continue;
-    const intendedPath = tracePath(
-      c.node.pending.g.ghost, c.dir, c.travel, obstacles, {
-        maxRails: 4,
-        curve,
-        sidespin: c.sidespin,
-      },
-    );
+
     const risk =
       pocketRisk(intendedPath.points) * clearanceRisk(intendedPath.points, laterPos);
     const p = c.node.pending;
@@ -233,7 +230,7 @@ function expandPass(
       cuePos: p.cuePos,
       ghost: p.g.ghost,
       cutDeg: (p.g.cut * 180) / Math.PI,
-      potProb: p.potProb,
+      potProb: p.potProb * potPaceFactor(p.g, c.type, intendedPath.powerTravel, skill),
       type: c.type,
       sidespin: c.sidespin,
       path: intendedPath.points,
@@ -322,71 +319,57 @@ function resolveShotZones(
 }
 
 function finalize(
-  node: Node,
+  nodes: Node[],
   balls: Ball[],
   firstBallIndex: number,
   skill: SkillProfile,
   surfaces: (ValueSurface | null)[],
   explainFirstAsHand = true,
-): Pattern {
-  const p = node.pending;
-  // The final ball has no next Position Window, so it gets a SAFETY Route: the
-  // pocket x shot type maximizing P(pot) x P(no scratch) at minimal natural
-  // travel (route.ts). Its scratch risk — an automatic loss, unaccounted for
-  // while the 9 was a null pot-only shot — folds into the reported run-out
-  // probability here, the same pocketRisk pricing every mid-rack route carries.
-  const safe = finalSafetyRoute(p.cuePos, p.ball.pos, skill);
-  // The last shot never has an onward window (eNext/windowRef/zoneLen/entryDeg/
-  // zone stay null). When a safety route exists it supplies the pocket and route
-  // geometry; otherwise — no pocket pottable from the arrival position — fall
-  // back to the pot-only shot the beam routed for rather than inventing a route.
-  const last: PlannedShot = {
-    ball: p.ball,
-    cuePos: p.cuePos,
-    eNext: null,
-    windowRef: null,
-    zoneLen: null,
-    entryDeg: null,
-    zone: null,
-    explanation: '',
-    ...(safe
-      ? {
-          pocket: safe.pocket,
-          ghost: safe.g.ghost,
-          cutDeg: (safe.g.cut * 180) / Math.PI,
-          potProb: safe.potProb,
-          type: safe.type,
-          sidespin: safe.sidespin,
-          path: safe.path,
-          landing: safe.landing,
-          rails: safe.rails,
-          travel: safe.travel,
-        }
-      : {
-          pocket: p.pocket,
-          ghost: p.g.ghost,
-          cutDeg: (p.g.cut * 180) / Math.PI,
-          potProb: p.potProb,
-          type: null,
-          sidespin: 0,
-          path: null,
-          landing: null,
-          rails: 0,
-          travel: 0,
-        }),
-  };
-  const score = safe ? node.score * safe.noScratch : node.score;
-  const shots = [...node.done, last];
-  resolveShotZones(shots, balls, firstBallIndex, skill, surfaces);
-  for (let i = 0; i < shots.length; i++) {
-    shots[i].explanation = explainShot(
-      shots[i],
-      shots[i + 1] ?? null,
-      i === 0 && explainFirstAsHand,
-      skill,
-    );
+): Pattern | null {
+  for (const node of nodes) {
+    const p = node.pending;
+    // The final ball has no next Position Window, so it gets a SAFETY Route: the
+    // pocket x shot type maximizing P(pot) x P(no scratch) at minimal natural
+    // travel (route.ts). Its scratch risk — an automatic loss, unaccounted for
+    // while the 9 was a null pot-only shot — folds into the reported run-out
+    // probability here, the same pocketRisk pricing every mid-rack route carries.
+    const safe = finalSafetyRoute(p.cuePos, p.ball.pos, skill);
+    if (!safe) continue;
+    const last: PlannedShot = {
+      ball: p.ball,
+      cuePos: p.cuePos,
+      eNext: null,
+      windowRef: null,
+      zoneLen: null,
+      entryDeg: null,
+      zone: null,
+      explanation: '',
+      pocket: safe.pocket,
+      ghost: safe.g.ghost,
+      cutDeg: (safe.g.cut * 180) / Math.PI,
+      potProb: safe.potProb,
+      type: safe.type,
+      sidespin: safe.sidespin,
+      path: safe.path,
+      landing: safe.landing,
+      rails: safe.rails,
+      travel: safe.travel,
+    };
+    const score = node.score * safe.noScratch *
+      potPaceFactor(safe.g, safe.type, safe.powerTravel, skill);
+    const shots = [...node.done, last];
+    resolveShotZones(shots, balls, firstBallIndex, skill, surfaces);
+    for (let i = 0; i < shots.length; i++) {
+      shots[i].explanation = explainShot(
+        shots[i],
+        shots[i + 1] ?? null,
+        i === 0 && explainFirstAsHand,
+        skill,
+      );
+    }
+    return { shots, score };
   }
-  return { shots, score };
+  return null;
 }
 
 function fixedCueNodes(
@@ -446,7 +429,7 @@ export function solveFromCue(
     nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
     if (nodes.length === 0) return null;
   }
-  return finalize(nodes[0], layout.balls, startIndex, skill, surfaces, startIndex === 0);
+  return finalize(nodes, layout.balls, startIndex, skill, surfaces, startIndex === 0);
 }
 
 export function previewLegFromCue(
@@ -488,5 +471,5 @@ export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
     nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
     if (nodes.length === 0) return null;
   }
-  return finalize(nodes[0], layout.balls, 0, skill, surfaces);
+  return finalize(nodes, layout.balls, 0, skill, surfaces);
 }

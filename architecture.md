@@ -145,7 +145,7 @@ scoring each leg against those backward surfaces.
  │    (each Node carries done[] = shots so far, pending = the shot at ball k)
  │
  │ ── 4. FINALIZE ────────────────────────────────────────────  [solver.ts]
- │    nodes[0] is the winner. Append the last shot (no onward window).
+ │    Choose the first node with a complete final route. Append its last shot.
  │    finalSafetyRoute: the final ball has no next window, so its Route   [route.ts]
  │       is the open pocket x shot type maximizing P(pot) x P(no scratch)
  │       at minimal natural travel, scratch priced by pocketRisk, folded
