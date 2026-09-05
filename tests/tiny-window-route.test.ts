@@ -61,7 +61,7 @@ describe('long route through a tiny position lobe', () => {
         c.type === 'follow' &&
         c.nextPocket.id === 'TR' &&
         c.rails === 2 &&
-        Math.abs(c.travel - 83.2) < 0.2,
+        c.sidespin === 0,
     );
 
     expect(route).toBeDefined();

@@ -17,7 +17,8 @@ describe('blocked cue-ball routes lose to open lanes (seed 1147167)', () => {
     balls: [
       { num: 6, pos: vec(43.1, 28.3) },
       { num: 7, pos: vec(53.3, 4.8) },
-      { num: 8, pos: vec(63.4, 21.6) },
+      // Shift the 8 to retain competing open and blocked routes with mouth-center aim.
+      { num: 8, pos: vec(65, 23.2) },
       { num: 9, pos: vec(64.6, 12.0) },
     ],
   };

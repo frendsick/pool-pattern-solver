@@ -549,7 +549,7 @@ export function pocketRisk(path: Vec[]): number {
   let worst = 1;
   for (const p of POCKETS) {
     const clear =
-      nearestApproach(path, p.target, (seg) => angleBetween(seg, p.facing) <= p.acceptance) -
+      nearestApproach(path, p.captureCenter, (seg) => angleBetween(seg, p.facing) <= p.acceptance) -
       p.captureRadius;
     worst = Math.min(worst, rampPenalty(clear, SCRATCH_MARGIN, SCRATCH_FLOOR));
   }

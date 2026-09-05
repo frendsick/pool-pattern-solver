@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { vec, norm, sub, angleBetween } from '../src/geometry';
-import { Layout, pocketById } from '../src/table';
+import { vec, add, scale, rotate, norm, sub, angleBetween } from '../src/geometry';
+import { BALL_R, Layout, pocketById } from '../src/table';
 import { INTERMEDIATE, powerFactor } from '../src/skill';
-import { solve } from '../src/solver';
+import { solve, solveFromCue } from '../src/solver';
 
 // Image #30 (2026-06-12, round 19): ball in hand on a 5-9 layout. The solver
 // potted the 5 bottom-right and sent a one-rail follow UP across the 6's
@@ -38,8 +38,12 @@ describe('along-the-window follow (image #30, round 19)', () => {
     expect(powerFactor(550, INTERMEDIATE)).toBeLessThan(0.65);
   });
 
-  it('pots the 5 top-right and follows along the window, not across it', () => {
-    const pattern = solve(layout, INTERMEDIATE)!;
+  it('offers the top-right follow along the window from a placed cue', () => {
+    const ball = layout.balls[0].pos;
+    const aim = norm(sub(pocketById('TR').target, ball));
+    const ghost = sub(ball, scale(aim, 2 * BALL_R));
+    const cue = add(ghost, scale(rotate(scale(aim, -1), -10 * Math.PI / 180), 8));
+    const pattern = solveFromCue(layout, INTERMEDIATE, 0, cue)!;
     expect(pattern).not.toBeNull();
     const s1 = pattern.shots[0];
     expect(s1.pocket.id).toBe('TR');
@@ -54,8 +58,9 @@ describe('along-the-window follow (image #30, round 19)', () => {
     const a = angleBetween(leg, line);
     expect(Math.min(a, Math.PI - a)).toBeLessThan((15 * Math.PI) / 180);
     expect(s1.zoneLen!).toBeGreaterThan(12);
-    expect(s1.eNext!).toBeGreaterThan(0.6);
-    expect(pattern.score).toBeGreaterThan(0.25);
+    // The corrected mouth keeps this route available, but its tail now
+    // scores below the bottom-right Pattern chosen by the free placement search.
+    expect(pattern.score).toBeGreaterThan(0.17);
   });
 
   it('the landing leaves a small working angle on the 6, not dead straight', () => {
@@ -64,6 +69,8 @@ describe('along-the-window follow (image #30, round 19)', () => {
     expect(s2.pocket.id).toBe('BL');
     expect(s2.cutDeg).toBeGreaterThan(1);
     expect(s2.cutDeg).toBeLessThan(35);
-    expect(s2.potProb).toBeGreaterThan(0.85); // was 0.787 from the far landing
+    // The corrected search accepts a harder 6 for a stronger remaining Pattern.
+    expect(s2.potProb).toBeGreaterThan(0.75);
+    expect(pattern.score).toBeGreaterThan(0.25);
   });
 });

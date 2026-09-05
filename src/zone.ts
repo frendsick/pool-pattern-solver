@@ -217,7 +217,7 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
     let v = 0;
     for (let i = 0; i < DIST_NODES.length; i++) {
       const p = add(g.ghost, scale(g.aim, DIST_NODES[i] * sig));
-      const scratched = dist(p, z.pocket.target) < z.pocket.captureRadius;
+      const scratched = dist(p, z.pocket.captureCenter) < z.pocket.captureRadius;
       v += DIST_WEIGHTS[i] * (scratched ? 0 : bestNextValue(p, z, skill));
     }
     best = sat(v) * skill.typeReliability.stop;

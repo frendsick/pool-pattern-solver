@@ -169,16 +169,27 @@ These constants define the world in which every shot, zone, collision check,
 and generated layout is interpreted:
 
 - `TABLE_W`, `TABLE_H`, and `BALL_R`: table and ball dimensions.
+- `CORNER_MOUTH`: physical width between corner jaw noses, shared with the
+  renderer. Corner targets are the midpoint between those noses, inset from
+  the cushion-line intersection. Side targets stay on the cushion line.
 - `CUE_OBSTACLE_CLEARANCE`: minimum cue-center distance from an obstacle ball.
   Shared by zone scoring, window edges, and drag validation. Drag clamping
   adds a small inset so rounding cannot put the cue inside the clearance ring.
 - `POCKETS`: pocket targets, facings, effective widths, acceptance cones,
-  capture radii, and labels.
+  capture centers and radii, and labels.
 - `ACCEPTANCE_NEAR` and `JAW_RANGE`: near-pocket widening of acceptance.
 - `MIN_X`, `MAX_X`, `MIN_Y`, and `MAX_Y`: legal ball-center bounds.
 
 Changing these values changes pot probability, scratch checks, route tracing,
 zone construction, and layout generation.
+
+`Pocket.target` is the shared mouth center for object-ball aim, ghost-ball
+geometry, cut angles, Position Windows, scene overlays, playback, and generation
+pocket clearance. Scratch tracing (`tracePath`), route risk (`pocketRisk`), and
+stop-drift checks use `Pocket.captureCenter`. Corner capture disks stay at the
+cushion intersection. Moving them to the mouth would capture safe cushion rebounds
+beside the jaws. Capture radii and effective potting widths remain heuristic
+parameters, separate from physical mouth width.
 
 ### Shot Physics
 
@@ -435,9 +446,9 @@ but they affect how users reach and inspect solver decisions:
   pockets) rather than rebuilding the gated zone, so it no longer depends on
   value.ts.
 - [src/render.ts](../src/render.ts): SVG scale, rail width, colors, markers,
-  and ball drawing. Pocket mouths, facings, shelves, and liners are artwork.
-  They do not set solver acceptance or pocket targets. Targeting the physical
-  opening is tracked separately in [issue #33](https://github.com/frendsick/pool-pattern-solver/issues/33).
+  and ball drawing. Corner mouths use `CORNER_MOUTH` from the table model so
+  their centers match solver targets. Facings, shelves, and liners are artwork
+  and do not set solver acceptance.
 - [src/style.css](../src/style.css): the dark theme and responsive ball strip.
   Small portrait screens rotate the table and keep ball numbers upright.
   Pointer and keyboard directions use the SVG screen transform in `main.ts`.

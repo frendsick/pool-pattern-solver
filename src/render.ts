@@ -1,8 +1,8 @@
 // Pure SVG renderer: a Diamond Pro-Am style table with training overlays.
-// Pocket artwork does not change the solver's targets or shot acceptance.
+// Corner mouth width is shared with the solver's aiming targets.
 
 import { Vec } from './geometry';
-import { TABLE_W, TABLE_H, BALL_R, Ball } from './table';
+import { TABLE_W, TABLE_H, BALL_R, CORNER_MOUTH, Ball } from './table';
 
 const S = 9; // px per inch
 const RAIL = 7; // rail width, inches
@@ -109,13 +109,12 @@ function drawCueBall(p: Vec, dashed = false, draggable = false): string {
 }
 
 /** Draw in inches, with six separate cushions and recessed pocket wells.
- * Mouth widths are physical artwork dimensions, not solver acceptance widths.
+ * Physical mouth widths are separate from solver acceptance widths.
  * ponytail: approximate jaws and shelves. Use measured profiles for exact replication.
  */
 function tableBase(): string {
-  const cornerMouth = 4.5;
   const sideMouth = 5;
-  const cornerEnd = cornerMouth / Math.SQRT2;
+  const cornerEnd = CORNER_MOUTH / Math.SQRT2;
   const cushionDepth = 2;
   const cornerBack = cornerEnd - cushionDepth / Math.tan(38 * Math.PI / 180);
   const sideEnd = TABLE_W / 2 - sideMouth / 2;

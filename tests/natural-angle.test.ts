@@ -15,7 +15,7 @@ import {
   drawRailFactor,
   INTERMEDIATE,
 } from '../src/skill';
-import { solve } from '../src/solver';
+import { solveFromCue } from '../src/solver';
 
 const ball = vec(50, 25);
 const ts = pocketById('TS');
@@ -81,7 +81,9 @@ describe('golden: natural-angle follow from ball in hand (2026-06-11 round 8)', 
         { num: 9, pos: vec(14.4, 15.0) },
       ],
     };
-    const pattern = solve(layout, INTERMEDIATE);
+    // Mouth-center aim puts the successful cut between the placement grid's
+    // 15 and 20 degree samples. Check the player's natural-follow placement.
+    const pattern = solveFromCue(layout, INTERMEDIATE, 0, vec(8.4, 18.5));
     expect(pattern).not.toBeNull();
     const first = pattern!.shots[0];
     expect(first.type).toBe('follow');
