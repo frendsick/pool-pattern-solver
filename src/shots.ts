@@ -357,7 +357,7 @@ export function tracePath(
     // Pocket mouths: entering one is a scratch.
     let tPocket = Infinity;
     for (const p of POCKETS) {
-      const t = rayCircleHit(pos, segDir, p.target, p.captureRadius, horizon);
+      const t = rayCircleHit(pos, segDir, p.captureCenter, p.captureRadius, horizon);
       if (t !== null && t < tPocket) tPocket = t;
     }
 

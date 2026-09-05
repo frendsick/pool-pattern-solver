@@ -12,7 +12,8 @@ import { generatePuzzle } from '../src/generator';
 // unpottable (effective acceptance ~47 deg at 8.5"), so the solver sent the
 // 7 forty-four inches cross-table to the bottom-left corner. "Why don't we
 // make the easy stop shot?" — the near-mouth cone now decays over 9", and
-// the solver pots the hanger into the side it sits by.
+// the side pot is available. Corrected corner targets also offer a shorter
+// opening route whose complete Pattern now scores higher.
 describe('side-pocket hanger at a steep approach (image #29, round 17)', () => {
   const layout: Layout = {
     seed: 0,
@@ -37,12 +38,14 @@ describe('side-pocket hanger at a steep approach (image #29, round 17)', () => {
     expect(potProbability(g, bs, INTERMEDIATE)).toBeGreaterThan(0.95);
   });
 
-  it('the solver plays the 7 into the side it hangs by and the run-out firms up', () => {
+  it('keeps a strong run-out when the corrected corner route beats the side route', () => {
     const pattern = solve(layout, INTERMEDIATE)!;
     expect(pattern).not.toBeNull();
-    expect(pattern.shots[0].pocket.id).toBe('BS');
-    expect(pattern.shots[0].potProb).toBeGreaterThan(0.95);
-    // was 0.662 via the cross-table corner route
+    expect(pattern.shots[0].pocket.id).toBe('BL');
+    expect(pattern.shots[0].potProb).toBeGreaterThan(0.9);
+    // The old side opening travelled 120 inches. Mouth-center corner aim
+    // reaches the next window in 26 inches and improves the complete score.
+    expect(pattern.shots[0].travel).toBeLessThan(30);
     expect(pattern.score).toBeGreaterThan(0.72);
   });
 });

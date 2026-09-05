@@ -6,6 +6,8 @@ import { Vec, vec, norm } from './geometry';
 export const TABLE_W = 100;
 export const TABLE_H = 50;
 export const BALL_R = 1.125;
+/** Physical distance between corner jaw noses, shared with the renderer. */
+export const CORNER_MOUTH = 4.5;
 /** Minimum cue-center distance from an obstacle ball's center. */
 export const CUE_OBSTACLE_CLEARANCE = 2 * BALL_R + 0.05;
 
@@ -13,22 +15,28 @@ export type PocketId = 'BL' | 'BR' | 'TL' | 'TR' | 'BS' | 'TS';
 
 export interface Pocket {
   id: PocketId;
-  /** Aiming target for the object ball (mouth of the pocket). */
+  /** Center of the physical pocket mouth, used for aiming. */
   target: Vec;
+  /** Center of the heuristic scratch capture disk, independent of aim. */
+  captureCenter: Vec;
   /** Unit vector pointing from the table into the pocket. */
   facing: Vec;
   /** Half-width of the effective target at the mouth, inches. */
   halfWidth: number;
   /** Max deviation of the ball's arrival direction from `facing` (radians). */
   acceptance: number;
-  /** Cue ball paths passing this close to the target are a scratch risk. */
+  /** Cue ball paths passing this close to captureCenter are a scratch risk. */
   captureRadius: number;
   label: string;
 }
 
 const corner = (id: PocketId, x: number, y: number, label: string): Pocket => ({
   id,
-  target: vec(x, y),
+  captureCenter: vec(x, y),
+  target: vec(
+    x + (x === 0 ? 1 : -1) * CORNER_MOUTH / (2 * Math.SQRT2),
+    y + (y === 0 ? 1 : -1) * CORNER_MOUTH / (2 * Math.SQRT2),
+  ),
   facing: norm(vec(x === 0 ? -1 : 1, y === 0 ? -1 : 1)),
   halfWidth: 2.1,
   acceptance: (52 * Math.PI) / 180,
@@ -38,6 +46,7 @@ const corner = (id: PocketId, x: number, y: number, label: string): Pocket => ({
 
 const side = (id: PocketId, x: number, y: number, label: string): Pocket => ({
   id,
+  captureCenter: vec(x, y),
   target: vec(x, y),
   facing: norm(vec(0, y === 0 ? -1 : 1)),
   halfWidth: 1.7,

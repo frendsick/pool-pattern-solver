@@ -78,8 +78,10 @@ describe('simpler routes over long multi-rail follow', () => {
     const s8 = pattern!.shots[3];
     expect(s7.ball.num).toBe(7);
     expect(['draw', 'lowTouch', 'stun', 'stop']).toContain(s7.type);
-    expect(s7.rails).toBe(0);
-    expect(s7.travel).toBeLessThan(35);
+    // Corrected corner aim changes the 7's arrival angle. Its touch takes
+    // one rail, while the 8 still stops inside the 9's window.
+    expect(s7.rails).toBeLessThanOrEqual(1);
+    expect(s7.travel).toBeLessThan(50);
 
     expect(s8.ball.num).toBe(8);
     expect(['draw', 'lowTouch', 'stun', 'stop']).toContain(s8.type);

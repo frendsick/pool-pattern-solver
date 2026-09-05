@@ -19,7 +19,8 @@ const layout: Layout = {
   seed: 0,
   balls: [
     { num: 5, pos: vec(56.35, 15.72) },
-    { num: 6, pos: vec(93.8, 19.07) },
+    // Anchor the 6 to the mouth to preserve the shot line this fixture tests.
+    { num: 6, pos: sub(pocketById('BR').target, vec(6.2, -19.07)) },
     { num: 7, pos: vec(76.97, 19.82) },
     { num: 8, pos: vec(39.26, 25.78) },
     { num: 9, pos: vec(49.47, 24.93) },
@@ -50,8 +51,7 @@ describe('shotline-aligned seeds (image #31)', () => {
     const tsCuts = nodes
       .filter((n) => n.pending.pocket.id === 'TS')
       .map((n) => (n.pending.g.cut * 180) / Math.PI);
-    // The user's "less angle, one rail off the top, down the 6's line" lives
-    // at a ~11-16 deg cut; the grid only offers 10 and 20.
+    // The aligned fold cut is absent from the retained fixed-grid seeds.
     expect(tsCuts.some((c) => c > 10.5 && c < 16.5)).toBe(true);
     // and without next-ball targets the grid alone does not have it
     const bare = initialNodes(layout, INTERMEDIATE, surfaces);
