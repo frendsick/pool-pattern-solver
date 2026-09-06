@@ -75,11 +75,12 @@ function buildSurface(
   obstacles: Vec[],
   next: NextValueFn | undefined,
   skill: SkillProfile,
+  gridStep: number,
 ): ValueSurface {
   const spanX = MAX_X - MIN_X;
   const spanY = MAX_Y - MIN_Y;
-  const nx = Math.ceil(spanX / GRID_STEP) + 1;
-  const ny = Math.ceil(spanY / GRID_STEP) + 1;
+  const nx = Math.ceil(spanX / gridStep) + 1;
+  const ny = Math.ceil(spanY / gridStep) + 1;
   const sx = spanX / (nx - 1);
   const sy = spanY / (ny - 1);
   // One gated context per open pocket, shared by every cell: onward control
@@ -115,13 +116,14 @@ function buildSurface(
 export function buildSurfaces(
   balls: Ball[],
   skill: SkillProfile,
+  gridStep = GRID_STEP,
 ): (ValueSurface | null)[] {
   const out: (ValueSurface | null)[] = balls.map(() => null);
   // Descending build: when ball i is reached, out[i+1] is already filled, so
   // zoneInputsForBall reads the same gate the old `next` local carried.
   for (let i = balls.length - 1; i >= 1; i--) {
     const { obstacles, gate } = zoneInputsForBall(balls, i, out);
-    out[i] = buildSurface(balls[i], obstacles, gate, skill);
+    out[i] = buildSurface(balls[i], obstacles, gate, skill, gridStep);
   }
   return out;
 }

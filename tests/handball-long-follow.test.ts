@@ -4,7 +4,7 @@ import { Layout, MIN_X, MAX_X, MIN_Y, MAX_Y, pocketById } from '../src/table';
 import { INTERMEDIATE } from '../src/skill';
 import { routeCandidates, zoneTargets } from '../src/route';
 import { solve } from '../src/solver';
-import { shotGeometry, caromCurve, tracePath } from '../src/shots';
+import { shotGeometry, traceShot } from '../src/shots';
 import { surfacesForLayout } from '../src/value';
 
 const layout: Layout = {
@@ -81,35 +81,25 @@ describe('handball long follow fallback (seed 791175205)', () => {
 
     const nearOldNine = candidates.some((c) => {
       if (c.type !== 'follow' || c.rails < 1 || c.travel < 130) return false;
-      const tr = tracePath(
-        g.ghost,
-        c.dir,
-        c.travel,
-        obstacles,
-        {
-          maxRails: 4,
-          curve: caromCurve(g, c.type, c.travel) ?? undefined,
-          sidespin: c.sidespin,
-        },
-      );
+      const tr = traceShot(g, c.type, c.travel, obstacles, { maxRails: 4, sidespin: c.sidespin });
       if (tr.outcome !== 'ok') return false;
       return railPoints(tr.points).some((p) => dist(p, oldNine) < 12);
     });
     expect(nearOldNine).toBe(true);
   });
 
-  it('solves the complete Pattern when corrected corners favor a shorter top-side opening', () => {
+  it('solves the complete Pattern with the long bottom-left follow', () => {
     const pattern = solve(layout, INTERMEDIATE);
     expect(pattern).not.toBeNull();
     const first = pattern!.shots[0];
-    // The BL follow remains available above. Corrected downstream shot lines
-    // make this shorter TS route score 0.135 against the BL Pattern's 0.114.
-    expect(first.pocket.id).toBe('TS');
-    expect(first.type).toBe('lowTouch');
+    // Cushion losses and pot speed change the downstream route costs.
+    expect(first.pocket.id).toBe('BL');
+    expect(first.type).toBe('follow');
     expect(first.rails).toBe(1);
-    expect(first.travel).toBeLessThan(80);
+    expect(first.travel).toBeGreaterThan(90);
+    expect(first.travel).toBeLessThan(110);
     expect(first.landing!.x).toBeLessThan(30);
     expect(first.zoneLen!).toBeGreaterThan(7);
-    expect(pattern!.score).toBeGreaterThan(0.11);
+    expect(pattern!.score).toBeGreaterThan(0.08);
   });
 });

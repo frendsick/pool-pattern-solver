@@ -36,7 +36,8 @@ describe('corner pocket mouth targets (issue #33)', () => {
       const trace = tracePath(start, pocket.facing, 10, []);
       expect(trace.outcome).toBe('scratch');
       expect(trace.rails).toBe(0);
-      expect(trace.travelled).toBeCloseTo(10 - pocket.captureRadius, 10);
+      // Cloth inside the capture disk is playable up to the cushion opening.
+      expect(trace.travelled).toBeCloseTo(10 - Math.SQRT2 * BALL_R, 10);
       expect(pocketRisk(trace.points)).toBeLessThan(0.5);
       expect(pocketRisk([...trace.points].reverse())).toBe(1);
 

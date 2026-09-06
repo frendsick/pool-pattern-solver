@@ -38,13 +38,12 @@ describe('side-pocket hanger at a steep approach (image #29, round 17)', () => {
     expect(potProbability(g, bs, INTERMEDIATE)).toBeGreaterThan(0.95);
   });
 
-  it('keeps a strong run-out when the corrected corner route beats the side route', () => {
+  it('keeps a strong run-out through the nearby side pocket', () => {
     const pattern = solve(layout, INTERMEDIATE)!;
     expect(pattern).not.toBeNull();
-    expect(pattern.shots[0].pocket.id).toBe('BL');
+    expect(pattern.shots[0].pocket.id).toBe('BS');
     expect(pattern.shots[0].potProb).toBeGreaterThan(0.9);
-    // The old side opening travelled 120 inches. Mouth-center corner aim
-    // reaches the next window in 26 inches and improves the complete score.
+    // The corrected energy model reaches position with a short side opening.
     expect(pattern.shots[0].travel).toBeLessThan(30);
     expect(pattern.score).toBeGreaterThan(0.72);
   });

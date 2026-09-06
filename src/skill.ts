@@ -13,6 +13,10 @@ import {
   signedRollShare,
   minCueTravel,
   hitDistance,
+  POCKET_PACE,
+  objectTravel,
+  cushionRetention,
+  caromLocus,
 } from './shots';
 
 export interface SkillProfile {
@@ -126,7 +130,7 @@ export interface SkillProfile {
   handDirEase: number;
   /**
    * Hit-power comfort and ceiling, in equivalent roll-out inches of the hit
-   * (hitDistance in shots.ts). Up to hitComfort the pot is unaffected; a
+   * (hitDistance in shots.ts). Up to hitComfort powerFactor stays at 1. A
    * route's value decays to zero at hitMax — past that the shot needs to be
    * hit so hard the pot stops being realistic. This is what forbids long
    * sideways stun/draw routes off a near-straight shot while allowing
@@ -169,11 +173,11 @@ export const INTERMEDIATE: SkillProfile = {
   sidespinRailDirSigma: deg(1.4),
   drawRailRoom: 10,
   handDirEase: 0.5,
-  // 300" (~7.6 m equivalent roll-out): a firm position follow is a routine
-  // stroke, not a power shot. Monster sideways routes from nearly straight
-  // hits still sit far beyond this and decay to zero at hitMax.
-  hitComfort: 300,
-  hitMax: 700,
+  // Physical roll-out energy at µ_roll = 0.01: about 2 m/s comfort and
+  // 3.2 m/s ceiling, where an intermediate player's power shot starts.
+  // https://drdavepoolinfo.com/faq/speed/typical/
+  hitComfort: 800,
+  hitMax: 2000,
 };
 
 /**
@@ -206,6 +210,8 @@ function erf(x: number): number {
   return sign * y;
 }
 
+const FAST_POCKET_WIDTH = 0.8;
+
 /**
  * Probability of potting the shot described by `g` into `pocket`.
  *
@@ -214,12 +220,18 @@ function erf(x: number): number {
  * into an object-ball direction error, which must stay within the angular
  * half-width of the pocket as seen from the ball.
  */
-export function potProbability(g: ShotGeometry, pocket: Pocket, skill: SkillProfile): number {
+export function potProbability(
+  g: ShotGeometry, pocket: Pocket, skill: SkillProfile,
+  objectRollout = g.dBallPocket * POCKET_PACE,
+): number {
   if (g.cut >= skill.maxCut) return 0;
   if (g.cut >= skill.comfortCut && g.dCueGhost > skill.thinCutMaxDist) return 0;
   const dev = approachDeviation(g.aim, pocket);
   if (dev >= effectiveAcceptance(pocket, g.dBallPocket)) return 0;
-  const wEff = pocket.halfWidth * Math.pow(Math.cos(dev), 0.7);
+  const pace = Math.max(1, objectRollout / (g.dBallPocket * POCKET_PACE));
+  // ponytail: calibrated jaw margin, use measured pocket data for table-specific tuning.
+  const paceWidth = FAST_POCKET_WIDTH + (1 - FAST_POCKET_WIDTH) / Math.sqrt(pace);
+  const wEff = pocket.halfWidth * Math.pow(Math.cos(dev), 0.7) * paceWidth;
   const allowedObError = Math.atan(wEff / Math.max(g.dBallPocket, 2 * BALL_R));
   const amplification = Math.max(g.dCueGhost, 2 * BALL_R) / (2 * BALL_R * Math.cos(g.cut));
   // Cuts past the sweet spot (~30 deg) get gradually harder beyond what the
@@ -273,8 +285,8 @@ export function caromDirSigma(
 
 /**
  * Reliability of the backspin action when the departure line meets a cushion
- * early: draw needs room for the spin to take before the rail, or the
- * idealized instant-bend path is no longer what happens. 1 for other types
+ * early: draw needs room for the spin to take before the rail, where the
+ * model approximates the cushion's effect on spin. 1 for other types
  * and for routes that never reach a rail.
  */
 export function drawRailFactor(
@@ -338,8 +350,8 @@ export function railRouteFactor(
  * hit-power price the travel demands at this cut, and draw rail-room (see
  * CONTEXT.md: Route). This is the factor that prices a position route's
  * P(reach the next zone) on the effective scale (zone value x ease), and it is
- * 0 below the pocket-pace minimum travel (the cue ball cannot travel less and
- * still drive the object ball home with margin). The single source for what
+ * 0 below the pocket-pace energy minimum. Cushion losses can shorten the
+ * geometric travel at that energy. The single source for what
  * the route search (route.ts) and the onward-control gate (zone.ts) each
  * computed inline three times. `rails` and `firstRailDist` come from the
  * caller's path trace: the segment index and first-segment length on a locus
@@ -353,16 +365,27 @@ export function routeEase(
   rails: number,
   firstRailDist: number | null,
   skill: SkillProfile,
+  powerTravel = travel,
 ): number {
-  if (travel < minCueTravel(g, type)) return 0;
+  if (powerTravel + 1e-9 < minCueTravel(g, type)) return 0;
   const railFac = rails === 0 ? 1 : drawRailFactor(type, firstRailDist, skill);
   return (
     routeReliability(type, g.dCueGhost, skill) *
     sidespinReliability(sidespin, skill) *
     railFac *
     railRouteFactor(type, g.cut, rails, skill) *
-    powerFactor(hitDistance(g, type, travel), skill)
+    powerFactor(hitDistance(g, type, powerTravel), skill) *
+    potPaceFactor(g, type, powerTravel, skill)
   );
+}
+
+/** Adjust the pot already priced at pocket pace to the route's actual hit. */
+export function potPaceFactor(
+  g: ShotGeometry, type: ShotType, powerTravel: number, skill: SkillProfile,
+): number {
+  const soft = potProbability(g, g.pocket, skill);
+  return soft > 0
+    ? potProbability(g, g.pocket, skill, objectTravel(g, type, powerTravel)) / soft : 0;
 }
 
 /** One priced step of a walked exit path, see {@link walkExit}. */
@@ -404,12 +427,19 @@ export function* walkExit(
   includeSegStart: boolean,
 ): Generator<ExitStep> {
   let s = 0; // cumulative travel at the start of the segment
+  let power = 0;
+  let retention = 1;
   for (let i = 0; i + 1 < points.length; i++) {
     const a = points[i];
     const b = points[i + 1];
     const segLen = dist(a, b);
     if (segLen < 1e-9) continue;
     const d = norm(sub(b, a));
+    if (i > 0) {
+      const incoming = i === 1 && dist(a, points[0]) < 1e-9
+        ? caromLocus(g, type)?.dir ?? g.aim : norm(sub(a, points[i - 1]));
+      retention *= cushionRetention(incoming, a);
+    }
     for (let t = i === 0 || !includeSegStart ? step : 0; t <= segLen; t += step) {
       const travel = (s + t) / eta;
       yield {
@@ -417,10 +447,11 @@ export function* walkExit(
         point: add(a, scale(d, t)),
         rails: i,
         dirAt: d,
-        ease: routeEase(g, type, sidespin, travel, i, firstSeg, skill),
+        ease: routeEase(g, type, sidespin, travel, i, firstSeg, skill, (power + t / retention) / eta),
       };
     }
     s += segLen;
+    power += segLen / retention;
   }
 }
 

@@ -13,7 +13,7 @@
 // (ADR-0006) — `DECEL` is one tuned constant, reviewed by feel.
 
 import { Vec, dist, scale, add, sub, dot } from './geometry';
-import { shotGeometry, hitDistance, POCKET_PACE } from './shots';
+import { shotGeometry, hitDistance, POCKET_PACE, pathPowerTravel, caromCurve, departureDir } from './shots';
 import type { PlannedShot } from './solver';
 
 /**
@@ -26,9 +26,8 @@ const DECEL = 38;
 
 /**
  * Minimum hit power (equivalent roll-out, inches) for the cue's approach speed.
- * `hitDistance` is 0 for a stop shot and small for soft strokes; this floors
- * the approach so even a dead stop arrives at the object ball with believable
- * pace instead of crawling in.
+ * Very short pots need little impact energy. This timing floor keeps the
+ * cue approach from crawling on those shots.
  */
 const HIT_FLOOR = 12;
 
@@ -113,7 +112,9 @@ function hitEquiv(shot: PlannedShot): number {
   if (!shot.type) return HIT_FLOOR;
   const g = shotGeometry(shot.cuePos, shot.ball.pos, shot.pocket);
   if (!g) return HIT_FLOOR;
-  return Math.max(hitDistance(g, shot.type, shot.travel), HIT_FLOOR);
+  const initialDir = caromCurve(g, shot.type, 1)?.offsets[0] ?? departureDir(g, shot.type) ?? g.aim;
+  const power = shot.path ? pathPowerTravel(shot.path, initialDir) : shot.travel;
+  return Math.max(hitDistance(g, shot.type, power), HIT_FLOOR);
 }
 
 /**
@@ -168,7 +169,7 @@ export function buildPlayback(shot: PlannedShot): ShotPlayback {
   const objPoly = [objStart, objEnd];
   const LO = dist(objStart, objEnd);
   const cut = (shot.cutDeg * Math.PI) / 180;
-  const v0ObjFloor = Math.sqrt(2 * DECEL * (LO + POCKET_PACE));
+  const v0ObjFloor = Math.sqrt(2 * DECEL * (LO * POCKET_PACE));
   const v0Obj = Math.max(vContact * Math.cos(cut), v0ObjFloor);
   const TO = timeToCover(v0Obj, LO);
 

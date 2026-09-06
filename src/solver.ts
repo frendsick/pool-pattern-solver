@@ -17,18 +17,17 @@ import {
   ShotType,
   Sidespin,
   shotGeometry,
-  tracePath,
-  caromCurve,
+  traceShot,
 } from './shots';
-import { SkillProfile } from './skill';
+import { SkillProfile, perturbSamples, potPaceFactor } from './skill';
 import {
   ZoneContext,
   zoneBar,
   zoneContext,
   zoneValue,
 } from './zone';
-import { ValueSurface, surfacesForLayout, zoneInputsForBall } from './value';
-import type { RouteLanding, ZoneTarget } from './route';
+import { ValueSurface, buildSurfaces, surfacesForLayout, zoneInputsForBall } from './value';
+import type { RouteLanding, SearchMode, ZoneTarget } from './route';
 import {
   clearanceRisk,
   expectedNextPot,
@@ -53,7 +52,7 @@ export interface PlannedShot {
   ghost: Vec;
   cutDeg: number;
   potProb: number;
-  /** Route to the next shot; null for the final ball. */
+  /** Cue-ball action, if a route is available. */
   type: ShotType | null;
   sidespin: Sidespin;
   path: Vec[] | null;
@@ -90,6 +89,11 @@ export interface Pattern {
 
 const BEAM = 40;
 const EVAL_CAP = 130;
+const SCREEN_BEAM = 8;
+const SCREEN_EVAL_CAP = 32;
+const SCREEN_GRID_STEP = 3;
+// Rounded quadrature weights sum to slightly more than one.
+const POSITION_WEIGHT_SUM = perturbSamples(0, 0).reduce((sum, sample) => sum + sample.weight, 0);
 
 interface PendingShot {
   ball: Ball;
@@ -172,10 +176,11 @@ export function expandNodes(
   m: number,
   surfaces: (ValueSurface | null)[],
   skill: SkillProfile,
+  mode: SearchMode = 'full',
 ): Node[] {
   const targets = zoneTargets(balls, m, surfaces, skill);
   const { obstacles: laterPos } = zoneInputsForBall(balls, m, surfaces);
-  return expandToTargets(nodes, balls[m], laterPos, targets, skill);
+  return expandToTargets(nodes, balls[m], laterPos, targets, skill, mode);
 }
 
 function expandPass(
@@ -185,23 +190,28 @@ function expandPass(
   targets: ZoneTarget[],
   skill: SkillProfile,
   lenient: boolean,
+  mode: SearchMode,
 ): Node[] {
   const obstacles = [nextBall.pos, ...laterPos];
   const candidates: RouteCandidate[] = [];
   for (const node of nodes) {
-    for (const l of routeCandidates(node.pending.g, obstacles, targets, skill, lenient)) {
+    for (const l of routeCandidates(node.pending.g, obstacles, targets, skill, lenient, mode)) {
       candidates.push({ ...l, node, proxy: node.score * l.merit });
     }
   }
   candidates.sort((a, b) => b.proxy - a.proxy);
 
   const children: Node[] = [];
-  for (const c of candidates.slice(0, EVAL_CAP)) {
+  for (const c of candidates.slice(0, mode === 'screen' ? SCREEN_EVAL_CAP : EVAL_CAP)) {
     // P(reach the zone) compounds the landing spread (carom-direction
     // sensitivity included: a natural-angle follow's carom is easy to
     // direct, a long stun's or draw's is not) with the route's ease — type
     // reliability, hit power at this cut, draw rail-room.
-    const curve = caromCurve(c.node.pending.g, c.type, c.travel) ?? undefined;
+    const intendedPath = traceShot(c.node.pending.g, c.type, c.travel, obstacles, {
+      maxRails: 4, sidespin: c.sidespin,
+    });
+    if (intendedPath.outcome !== 'ok') continue;
+    const curve = intendedPath.curve;
     const e =
       expectedNextPot(
         c.node.pending.g.ghost, c.dir, c.travel, c.type, c.rails,
@@ -217,13 +227,7 @@ function expandPass(
     // Pot-only: the next shot's reported pot % must not carry the onward gate.
     const potNext = zoneValue(c.landing, c.zcPot, skill);
     if (potNext <= 0) continue;
-    const intendedPath = tracePath(
-      c.node.pending.g.ghost, c.dir, c.travel, obstacles, {
-        maxRails: 4,
-        curve,
-        sidespin: c.sidespin,
-      },
-    );
+
     const risk =
       pocketRisk(intendedPath.points) * clearanceRisk(intendedPath.points, laterPos);
     const p = c.node.pending;
@@ -233,7 +237,7 @@ function expandPass(
       cuePos: p.cuePos,
       ghost: p.g.ghost,
       cutDeg: (p.g.cut * 180) / Math.PI,
-      potProb: p.potProb,
+      potProb: p.potProb * potPaceFactor(p.g, c.type, intendedPath.powerTravel, skill),
       type: c.type,
       sidespin: c.sidespin,
       path: intendedPath.points,
@@ -264,7 +268,7 @@ function expandPass(
     });
   }
   sortChildren(children);
-  return children.slice(0, BEAM);
+  return children.slice(0, mode === 'screen' ? SCREEN_BEAM : BEAM);
 }
 
 
@@ -322,71 +326,59 @@ function resolveShotZones(
 }
 
 function finalize(
-  node: Node,
+  nodes: Node[],
   balls: Ball[],
   firstBallIndex: number,
   skill: SkillProfile,
   surfaces: (ValueSurface | null)[],
   explainFirstAsHand = true,
-): Pattern {
-  const p = node.pending;
-  // The final ball has no next Position Window, so it gets a SAFETY Route: the
-  // pocket x shot type maximizing P(pot) x P(no scratch) at minimal natural
-  // travel (route.ts). Its scratch risk — an automatic loss, unaccounted for
-  // while the 9 was a null pot-only shot — folds into the reported run-out
-  // probability here, the same pocketRisk pricing every mid-rack route carries.
-  const safe = finalSafetyRoute(p.cuePos, p.ball.pos, skill);
-  // The last shot never has an onward window (eNext/windowRef/zoneLen/entryDeg/
-  // zone stay null). When a safety route exists it supplies the pocket and route
-  // geometry; otherwise — no pocket pottable from the arrival position — fall
-  // back to the pot-only shot the beam routed for rather than inventing a route.
-  const last: PlannedShot = {
-    ball: p.ball,
-    cuePos: p.cuePos,
-    eNext: null,
-    windowRef: null,
-    zoneLen: null,
-    entryDeg: null,
-    zone: null,
-    explanation: '',
-    ...(safe
-      ? {
-          pocket: safe.pocket,
-          ghost: safe.g.ghost,
-          cutDeg: (safe.g.cut * 180) / Math.PI,
-          potProb: safe.potProb,
-          type: safe.type,
-          sidespin: safe.sidespin,
-          path: safe.path,
-          landing: safe.landing,
-          rails: safe.rails,
-          travel: safe.travel,
-        }
-      : {
-          pocket: p.pocket,
-          ghost: p.g.ghost,
-          cutDeg: (p.g.cut * 180) / Math.PI,
-          potProb: p.potProb,
-          type: null,
-          sidespin: 0,
-          path: null,
-          landing: null,
-          rails: 0,
-          travel: 0,
-        }),
-  };
-  const score = safe ? node.score * safe.noScratch : node.score;
-  const shots = [...node.done, last];
-  resolveShotZones(shots, balls, firstBallIndex, skill, surfaces);
-  for (let i = 0; i < shots.length; i++) {
-    shots[i].explanation = explainShot(
-      shots[i],
-      shots[i + 1] ?? null,
-      i === 0 && explainFirstAsHand,
-      skill,
-    );
+  mode: SearchMode = 'full',
+): Pattern | null {
+  for (const node of nodes) {
+    const p = node.pending;
+    // The final ball has no next Position Window, so it gets a SAFETY Route: the
+    // pocket x shot type maximizing P(pot) x P(no scratch) at minimal natural
+    // travel (route.ts). Its scratch risk — an automatic loss, unaccounted for
+    // while the 9 was a null pot-only shot — folds into the reported run-out
+    // probability here, the same pocketRisk pricing every mid-rack route carries.
+    const safe = finalSafetyRoute(p.cuePos, p.ball.pos, skill);
+    if (!safe) continue;
+    const last: PlannedShot = {
+      ball: p.ball,
+      cuePos: p.cuePos,
+      eNext: null,
+      windowRef: null,
+      zoneLen: null,
+      entryDeg: null,
+      zone: null,
+      explanation: '',
+      pocket: safe.pocket,
+      ghost: safe.g.ghost,
+      cutDeg: (safe.g.cut * 180) / Math.PI,
+      potProb: safe.potProb,
+      type: safe.type,
+      sidespin: safe.sidespin,
+      path: safe.path,
+      landing: safe.landing,
+      rails: safe.rails,
+      travel: safe.travel,
+    };
+    const score = node.score * safe.noScratch *
+      potPaceFactor(safe.g, safe.type, safe.powerTravel, skill);
+    const shots = [...node.done, last];
+    if (mode === 'screen') return { shots, score };
+    resolveShotZones(shots, balls, firstBallIndex, skill, surfaces);
+    for (let i = 0; i < shots.length; i++) {
+      shots[i].explanation = explainShot(
+        shots[i],
+        shots[i + 1] ?? null,
+        i === 0 && explainFirstAsHand,
+        skill,
+      );
+    }
+    return { shots, score };
   }
-  return { shots, score };
+  return null;
 }
 
 function fixedCueNodes(
@@ -424,9 +416,10 @@ function expandToTargets(
   laterPos: Vec[],
   targets: ZoneTarget[],
   skill: SkillProfile,
+  mode: SearchMode = 'full',
 ): Node[] {
   for (const lenient of [false, true]) {
-    const children = expandPass(nodes, nextBall, laterPos, targets, skill, lenient);
+    const children = expandPass(nodes, nextBall, laterPos, targets, skill, lenient, mode);
     if (children.length > 0 || lenient) return children;
   }
   return [];
@@ -446,7 +439,7 @@ export function solveFromCue(
     nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
     if (nodes.length === 0) return null;
   }
-  return finalize(nodes[0], layout.balls, startIndex, skill, surfaces, startIndex === 0);
+  return finalize(nodes, layout.balls, startIndex, skill, surfaces, startIndex === 0);
 }
 
 export function previewLegFromCue(
@@ -473,11 +466,28 @@ export function previewLegFromCue(
   return best;
 }
 
-export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
+/** Full search, with an optional score floor for generation's best-so-far cutoff. */
+export function solve(layout: Layout, skill: SkillProfile, minimumScore = 0): Pattern | null {
   // Backward pass first (value.ts): V_k surfaces from the 9 down, so every
   // zone the forward beam search measures against already carries the chain
   // of requirements of the balls after it.
   const surfaces = surfacesForLayout(layout, skill);
+  return searchLayout(layout, skill, surfaces, 'full', minimumScore);
+}
+
+/** Cheap ordering hint. Coarse grids stay outside the full-solve surface cache. */
+export function screenLayout(layout: Layout, skill: SkillProfile): number {
+  const surfaces = buildSurfaces(layout.balls, skill, SCREEN_GRID_STEP);
+  return searchLayout(layout, skill, surfaces, 'screen', 0)?.score ?? 0;
+}
+
+function searchLayout(
+  layout: Layout,
+  skill: SkillProfile,
+  surfaces: (ValueSurface | null)[],
+  mode: SearchMode,
+  minimumScore: number,
+): Pattern | null {
   // Ball-in-hand placement may be engineered against the SECOND ball's shot
   // lines (shotline-aligned seeds): hand the next zone targets to the seeder.
   const nextTargets =
@@ -485,8 +495,10 @@ export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
   let nodes = initialNodes(layout, skill, surfaces, nextTargets);
   if (nodes.length === 0) return null;
   for (let k = 1; k < layout.balls.length; k++) {
-    nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
-    if (nodes.length === 0) return null;
+    nodes = expandNodes(nodes, layout.balls, k, surfaces, skill, mode);
+    const remainingFactor = POSITION_WEIGHT_SUM ** (layout.balls.length - 1 - k);
+    if (nodes.length === 0 || nodes.every(node => node.score * remainingFactor < minimumScore)) return null;
   }
-  return finalize(nodes[0], layout.balls, 0, skill, surfaces);
+  const pattern = finalize(nodes, layout.balls, 0, skill, surfaces, true, mode);
+  return pattern && pattern.score >= minimumScore ? pattern : null;
 }

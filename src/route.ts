@@ -22,8 +22,11 @@ import {
   SIDESPINS,
   departureDir,
   minCueTravel,
+  isStraight,
   shotGeometry,
   tracePath,
+  traceShot,
+  objectTravel,
   CaromCurve,
   caromCurve,
   caromLocus,
@@ -53,6 +56,9 @@ import { ValueSurface, zoneInputsForBall } from './value';
 
 export const MAX_ROUTE = 220;
 export const WALK_STEP = 2.0;
+/** Screening ranks layouts. Returned puzzles always use the full search. */
+export type SearchMode = 'full' | 'screen';
+const SCREEN_WALK_STEP = 6;
 const ZONE_VMIN = 0.15;
 const SIMPLE_ROUTE_MAX_TRAVEL = 30;
 // A long multi-rail path running along a narrow lobe still needs lateral
@@ -81,13 +87,6 @@ const LANDING_RAIL_INSET = RAIL_MARGIN + 1;
  */
 const SCRATCH_MARGIN = 4;
 const SCRATCH_FLOOR = 0.35;
-
-/**
- * Cut below which the stop shot is offered: above it the cue cannot be killed
- * in place (the stop degenerates to a stun). Shared by routeCandidates and
- * finalSafetyRoute so mid-rack and final-ball stop eligibility stay aligned.
- */
-const STOP_MAX_CUT = (9 * Math.PI) / 180;
 
 /** Per-pocket zone target for one solver layer: shared by every node. */
 export interface ZoneTarget {
@@ -224,9 +223,7 @@ function exactCurveSamples(
 ): RouteSample[] {
   const out: RouteSample[] = [];
   for (let travel = WALK_STEP; travel <= MAX_ROUTE; travel += WALK_STEP) {
-    const curve = caromCurve(g, type, travel);
-    if (!curve) break;
-    const tr = tracePath(g.ghost, dir, travel, obstacles, { maxRails: 4, curve, sidespin });
+    const tr = traceShot(g, type, travel, obstacles, { maxRails: 4, sidespin });
     const dirAt = pathEndDir(tr.points, dir);
     if (tr.outcome !== 'ok') {
       out.push({
@@ -240,7 +237,7 @@ function exactCurveSamples(
       continue;
     }
     const railDist = firstRailDist(tr.points, tr.rails);
-    const ease = routeEase(g, type, sidespin, travel, tr.rails, railDist, skill);
+    const ease = routeEase(g, type, sidespin, travel, tr.rails, railDist, skill, tr.powerTravel);
     out.push({
       travel,
       point: tr.end,
@@ -259,6 +256,7 @@ function samplePath(
   obstacles: Vec[],
   skill: SkillProfile,
   exactCurves = false,
+  mode: SearchMode = 'full',
 ): RouteSample[] | null {
   const locus = caromLocus(g, type);
   if (!locus) return null;
@@ -268,13 +266,14 @@ function samplePath(
     maxRails: 3,
     sidespin,
   });
-  if ((exactCurves || tr.outcome !== 'ok') && caromCurve(g, type, MAX_ROUTE)) {
+  if (mode === 'full' && (exactCurves || tr.rails > 0 || tr.outcome !== 'ok') && caromCurve(g, type, MAX_ROUTE)) {
     return exactCurveSamples(g, type, sidespin, dir, obstacles, skill);
   }
   const firstSeg =
     tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
   return Array.from(walkExit(
-    tr.points, locus.eta, firstSeg, g, type, sidespin, skill, WALK_STEP, true,
+    tr.points, locus.eta, firstSeg, g, type, sidespin, skill,
+    mode === 'screen' ? SCREEN_WALK_STEP : WALK_STEP, true,
   ));
 }
 
@@ -569,13 +568,14 @@ export interface FinalRoute {
   landing: Vec;
   travel: number;
   rails: number;
+  /** Free-cloth cue travel equivalent of the required impact energy. */
+  powerTravel: number;
 }
 
 /**
  * Shot types tried for the final ball, easiest first — so a tie in
  * P(pot) x P(no scratch) resolves toward the simpler stroke. The stop shot is
- * only offered when the cut is near-straight (it degenerates to a stun
- * otherwise); see routeCandidates' `stoppable` gate.
+ * only offered on a straight cut. Other cuts retain tangent motion.
  */
 const FINAL_TYPE_ORDER: ShotType[] = ['stop', 'follow', 'stun', 'lowTouch', 'draw'];
 
@@ -594,7 +594,7 @@ const FINAL_TYPE_ORDER: ShotType[] = ['stop', 'follow', 'stun', 'lowTouch', 'dra
  *
  * No object balls remain when the 9 is shot, so the trace sees only cushions
  * and pocket mouths (obstacles = []). Returns null only if no pocket is
- * pottable at all from the arrival position.
+ * pottable with a complete trace from the arrival position.
  */
 export function finalSafetyRoute(
   cue: Vec,
@@ -609,31 +609,30 @@ export function finalSafetyRoute(
     if (!g) continue;
     const potProb = potProbability(g, pocket, skill);
     if (potProb <= 0) continue;
-    const stoppable = g.cut < STOP_MAX_CUT;
+    const stoppable = isStraight(g);
     for (let rank = 0; rank < FINAL_TYPE_ORDER.length; rank++) {
       const type = FINAL_TYPE_ORDER[rank];
-      let dir: Vec;
       let travel: number;
       if (type === 'stop') {
         if (!stoppable) continue;
         // The cue stays put; a short stub down the aim line prices the
         // follow-in scratch (an under-killed stop creeps toward the pocket).
-        dir = g.aim;
         travel = 0.5;
       } else {
         const d = departureDir(g, type);
         if (!d) continue;
-        dir = d;
         travel = Math.max(minCueTravel(g, type), WALK_STEP);
       }
-      const curve = caromCurve(g, type, travel) ?? undefined;
-      const tr = tracePath(g.ghost, dir, travel, [], { maxRails: 4, curve });
+      const tr = traceShot(g, type, travel, [], { maxRails: 4 });
+      if (tr.outcome !== 'ok' && tr.outcome !== 'scratch') continue;
       const noScratch = tr.outcome === 'scratch' ? SCRATCH_FLOOR : pocketRisk(tr.points);
-      const score = potProb * noScratch;
+      const pacedPot = potProbability(g, pocket, skill, objectTravel(g, type, tr.powerTravel));
+      const score = pacedPot * noScratch;
       if (score > bestScore + 1e-9 || (score > bestScore - 1e-9 && rank < bestRank)) {
         best = {
-          pocket, g, type, sidespin: 0, potProb, noScratch,
+          pocket, g, type, sidespin: 0, potProb: pacedPot, noScratch,
           path: tr.points, landing: type === 'stop' ? g.ghost : tr.end, travel, rails: tr.rails,
+          powerTravel: tr.powerTravel,
         };
         bestScore = score;
         bestRank = rank;
@@ -669,13 +668,17 @@ export function expectedNextPot(
     const tRaw = travel + smp.dDist;
     const flip = type === 'stop' && tRaw < 0;
     const dir = rotate(flip ? scale(baseDir, -1) : baseDir, smp.dDir);
-    const cv =
-      curve && smp.dDir !== 0
-        ? { offsets: curve.offsets.map((o) => rotate(o, smp.dDir)), arc: curve.arc }
-        : curve;
     const t = Math.max(0.1, type === 'stop' ? Math.abs(tRaw) : tRaw);
-    const tr = tracePath(start, dir, t, obstacles, { maxRails: 4, curve: cv, sidespin });
-    if (tr.outcome === 'scratch') continue;
+    const ratio = travel > 0 ? t / travel : 1;
+    const cv = !carom && curve ? {
+      offsets: curve.offsets.map((o) => rotate(scale(o, ratio), smp.dDir)),
+      arc: curve.arc * ratio,
+    } : undefined;
+    const tr = carom
+      ? traceShot(carom.g, type, t, obstacles, { maxRails: 4, sidespin,
+        directionError: smp.dDir + (flip ? Math.PI : 0) })
+      : tracePath(start, dir, t, obstacles, { maxRails: 4, curve: cv, sidespin });
+    if (tr.outcome !== 'ok') continue;
     e += smp.weight * zoneValue(tr.end, zc, skill);
   }
   return e;
@@ -692,16 +695,17 @@ export function routeCandidates(
   targets: ZoneTarget[],
   skill: SkillProfile,
   lenient: boolean,
+  mode: SearchMode = 'full',
 ): RouteLanding[] {
   const out: RouteLanding[] = [];
-  const stoppable = g.cut < STOP_MAX_CUT;
+  const stoppable = isStraight(g);
   // A route's geometry is shared by every pocket. Keep scoring in target order
   // because each zone memoizes onward control from its first sampled position.
   const paths = new Map<string, RouteSample[] | null>();
   const samplesForTarget = (type: ShotType, sidespin: Sidespin, zc: ZoneContext) => {
     const key = `${type}:${sidespin}`;
     if (!paths.has(key)) {
-      paths.set(key, samplePath(g, type, sidespin, obstacles, skill, lenient));
+      paths.set(key, samplePath(g, type, sidespin, obstacles, skill, lenient, mode));
     }
     const path = paths.get(key);
     return path ? scoreSamples(path, sidespin, zc, skill) : null;
@@ -715,8 +719,8 @@ export function routeCandidates(
     samples: PathSample[];
   }
   const sampled: Sampled[] = [];
-  const stopEff = (t: ZoneTarget): number =>
-    zoneValue(g.ghost, t.zc, skill) * skill.typeReliability.stop;
+  const stopEase = routeEase(g, 'stop', 0, 0, 0, null, skill);
+  const stopEff = (t: ZoneTarget): number => zoneValue(g.ghost, t.zc, skill) * stopEase;
   let nodeMax = 0;
   for (const t of targets) {
     if (stoppable) {
@@ -771,7 +775,7 @@ export function routeCandidates(
       const landing = g.ghost;
       const v = zoneValue(landing, zc, skill);
       const landingDir = norm(sub(zoneGhost(zc), landing));
-      const eff = v * skill.typeReliability.stop;
+      const eff = v * stopEase;
       const bar = lenient ? Math.max(ZONE_FLOOR, ZONE_RELATIVE * eff) : nodeBar;
       if (eff >= bar && (lenient || !railExcluded(landing, landingDir, LANDING_RAIL_INSET))) {
         out.push({
@@ -779,7 +783,7 @@ export function routeCandidates(
           type: 'stop', sidespin: 0, dir: g.aim, travel: 0.5, rails: 0,
           landing, windowRef: v, zoneLen: null, entryDeg: null,
           merit: eff,
-          ease: skill.typeReliability.stop,
+          ease: stopEase,
           windowFactor: 1,
         });
       }
@@ -794,23 +798,21 @@ export function routeCandidates(
     for (const iv of intervals) {
       const ivLen = iv.s1 - iv.s0;
       for (const sTarget of intervalTargets(iv, samples, type, skill, g.dCueGhost)) {
-        const smp = sampleNear(samples, sTarget);
-        const baseEase = smp.v > 0 ? smp.eff / smp.v : 0;
-        if (baseEase <= 0.02) continue;
-        const rails = smp.rails;
-        const tr = tracePath(
-          g.ghost, dir, sTarget, obstacles, {
-            maxRails: 4,
-            curve: caromCurve(g, type, sTarget) ?? undefined,
-            sidespin,
-          },
-        );
+        const tr = traceShot(g, type, sTarget, obstacles, { maxRails: 4, sidespin });
         if (tr.outcome !== 'ok') continue;
+        const rails = tr.rails;
+        const baseEase = routeEase(g, type, sidespin, sTarget, rails,
+          firstRailDist(tr.points, rails), skill, tr.powerTravel);
+        if (baseEase <= 0.02) continue;
+        const v = zoneValue(tr.end, zc, skill);
+        const eff = v * baseEase;
+        if (eff < bar || (!lenient && railExcluded(tr.end,
+          norm(sub(zoneGhost(zc), tr.end)), LANDING_RAIL_INSET))) continue;
         const sigS = distanceSigma(type, sTarget, rails, skill, g.dCueGhost);
         const stayFactor = Math.min(1, ivLen / (3 * sigS));
         const rawWidthBar = Math.min(1, bar / baseEase);
         const widthFactor = widthControlFactor(
-          localWindowWidth(smp.p, smp.dirAt, zc, skill, rawWidthBar),
+          localWindowWidth(tr.end, pathEndDir(tr.points, dir), zc, skill, rawWidthBar),
           sTarget,
           type,
           sidespin,
@@ -824,7 +826,7 @@ export function routeCandidates(
           rails,
           sTarget,
           simpleHere,
-          smp.eff * stayFactor,
+          eff * stayFactor,
         );
         const ease = baseEase * simpleFactor;
         if (ease <= 0.02) continue;
@@ -832,10 +834,10 @@ export function routeCandidates(
           zc, zcPot, nextPocket: pocket,
           type, sidespin, dir, travel: sTarget, rails,
           landing: tr.end,
-          windowRef: Math.min(iv.peakV, smp.v / ZONE_RELATIVE),
+          windowRef: Math.min(iv.peakV, v / ZONE_RELATIVE),
           zoneLen: ivLen,
           entryDeg: lineAngleDeg(iv.entryDir, zc),
-          merit: smp.eff * simpleFactor * stayFactor,
+          merit: eff * simpleFactor * stayFactor,
           ease,
           windowFactor,
         });

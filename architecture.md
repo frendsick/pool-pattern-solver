@@ -145,7 +145,7 @@ scoring each leg against those backward surfaces.
  │    (each Node carries done[] = shots so far, pending = the shot at ball k)
  │
  │ ── 4. FINALIZE ────────────────────────────────────────────  [solver.ts]
- │    nodes[0] is the winner. Append the last shot (no onward window).
+ │    Choose the first node with a complete final route. Append its last shot.
  │    finalSafetyRoute: the final ball has no next window, so its Route   [route.ts]
  │       is the open pocket x shot type maximizing P(pot) x P(no scratch)
  │       at minimal natural travel, scratch priced by pocketRisk, folded
@@ -189,14 +189,19 @@ generatePuzzle(seed, ballCount, skill)                          [generator.ts]
    repeat up to MAX_TRIES:
        positions = randomPositions(...)        reject overlaps/cushion/pocket
        quickFeasible(balls)?                    cheap reachability prefilter
-       pattern = solve(layout, skill)           ← full solver above
-       if pattern.score ≥ minScore: return      (minScore = perShot ^ ballCount)
-       else keep best-so-far
+       for larger layouts, collect a batch and rank with screenLayout
+       for each layout in estimated-quality order:
+           pattern = solve(layout, skill, bestScore)  ← full solver above
+           if pattern.score ≥ minScore: return       (minScore = perShot ^ ballCount)
+           else keep best-so-far
    return best                                  never fail: degrade to best sub-threshold
 ```
 
 A Layout is only ever shown to the player if the solver found a complete Pattern for
 it. The 9 is biased toward the foot spot (it racks center and rarely gets cleanly hit).
+Screening uses a smaller beam, coarser grids, and coarse route proposals. Its score
+only orders candidates. Full validation uses the normal search and separate cached
+grids. A beam whose probability ceiling is below the best completed pattern can stop.
 
 ---
 

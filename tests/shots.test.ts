@@ -80,7 +80,7 @@ describe('minCueTravel', () => {
   };
 
   it('a route cannot travel less than pocket pace leaves the cue ball', () => {
-    // straight follow keeps (2/7)^2 of the object ball's pace share
+    // Straight follow keeps about 16% of the object ball's roll-out.
     expect(minCueTravel(gAt(0), 'follow')).toBeGreaterThan(2);
     // bigger cuts keep more tangent speed
     expect(minCueTravel(gAt(30), 'stun')).toBeGreaterThan(minCueTravel(gAt(10), 'stun'));
@@ -102,13 +102,11 @@ describe('hitDistance', () => {
     return shotGeometry(c, ball, ts)!;
   };
 
-  it('straight follow is a controlled top-spin stroke; near-straight sideways stun is not', () => {
-    // Straight follow can be powered through the roll component: this is a
-    // routine top-spin stroke, not the same as trying to move sideways.
-    expect(hitDistance(gAt(0), 'follow', 40)).toBeCloseTo(40 / (2 / 7), 0);
-    expect(hitDistance(gAt(5), 'follow', 40)).toBeLessThan(160);
-    // The same travel off a healthy angle is also a normal stroke.
-    expect(hitDistance(gAt(40), 'follow', 40)).toBeLessThan(100);
+  it('prices follow and stun using their retained energy', () => {
+    // Full follow keeps 4/49 as rolling energy plus its accelerating slide.
+    expect(hitDistance(gAt(0), 'follow', 40)).toBeCloseTo(40 / (4.2 / 49), 6);
+    expect(hitDistance(gAt(5), 'follow', 40)).toBeLessThan(hitDistance(gAt(5), 'stun', 40));
+    expect(hitDistance(gAt(40), 'follow', 40)).toBeLessThan(hitDistance(gAt(5), 'follow', 40));
     // But near-straight tangent/stun movement is still a monster.
     expect(hitDistance(gAt(5), 'stun', 40)).toBeGreaterThan(400);
   });
@@ -118,8 +116,8 @@ describe('hitDistance', () => {
     expect(hitDistance(g, 'stun', 60)).toBeCloseTo(2 * hitDistance(g, 'stun', 30), 6);
   });
 
-  it('stop is not a powered route', () => {
-    expect(hitDistance(gAt(0), 'stop', 0.5)).toBe(0);
+  it('a stop still supplies the object ball with pocket pace', () => {
+    expect(hitDistance(gAt(0), 'stop', 0)).toBeCloseTo(31.25 / (26.2 / 49), 6);
   });
 });
 

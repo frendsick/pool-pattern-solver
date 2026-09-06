@@ -27,15 +27,12 @@ describe('along-the-window follow (image #30, round 19)', () => {
   };
 
   it('a 60" one-rail position follow is a routine stroke, a near-straight monster still dies', () => {
-    // 20 deg cut keeps sin^2 + k^2 cos^2 ~ 0.19 of the hit: 61" of travel
-    // demands a ~320" equivalent roll-out — firm, not a power shot. (Round
-    // 20 moved the comfort knee 250" -> 300": the 13 deg top-rail fold of
-    // image #31 prices at 383" and is a stroke the user plays on purpose.)
-    expect(powerFactor(320, INTERMEDIATE)).toBeGreaterThan(0.97);
-    expect(powerFactor(383, INTERMEDIATE)).toBeGreaterThan(0.9);
-    // The round-6 monsters (near-straight sideways routes) keep dying.
-    expect(powerFactor(700, INTERMEDIATE)).toBe(0);
-    expect(powerFactor(550, INTERMEDIATE)).toBeLessThan(0.65);
+    // Physical rolling-energy units at µ_roll = 0.01: firm position shots
+    // near 2 m/s stay comfortable. Power shots near 3.2 m/s reach the ceiling.
+    expect(powerFactor(800, INTERMEDIATE)).toBeGreaterThan(0.97);
+    expect(powerFactor(1100, INTERMEDIATE)).toBeGreaterThan(0.9);
+    expect(powerFactor(2000, INTERMEDIATE)).toBe(0);
+    expect(powerFactor(1700, INTERMEDIATE)).toBeLessThan(0.65);
   });
 
   it('offers the top-right follow along the window from a placed cue', () => {
@@ -57,7 +54,8 @@ describe('along-the-window follow (image #30, round 19)', () => {
     const line = norm(sub(pocketById('BL').target, layout.balls[1].pos));
     const a = angleBetween(leg, line);
     expect(Math.min(a, Math.PI - a)).toBeLessThan((15 * Math.PI) / 180);
-    expect(s1.zoneLen!).toBeGreaterThan(12);
+    // Exact rail power and straight-only stops narrow the onward window.
+    expect(s1.zoneLen!).toBeGreaterThan(6);
     // The corrected mouth keeps this route available, but its tail now
     // scores below the bottom-right Pattern chosen by the free placement search.
     expect(pattern.score).toBeGreaterThan(0.17);
@@ -71,6 +69,6 @@ describe('along-the-window follow (image #30, round 19)', () => {
     expect(s2.cutDeg).toBeLessThan(35);
     // The corrected search accepts a harder 6 for a stronger remaining Pattern.
     expect(s2.potProb).toBeGreaterThan(0.75);
-    expect(pattern.score).toBeGreaterThan(0.25);
+    expect(pattern.score).toBeGreaterThan(0.2);
   });
 });

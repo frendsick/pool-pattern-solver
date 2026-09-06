@@ -9,20 +9,9 @@
 import { describe, it, expect } from 'vitest';
 import { vec, dist } from '../src/geometry';
 import { pocketById, POCKETS, Layout } from '../src/table';
-import {
-  ShotType,
-  shotGeometry,
-  departureDir,
-  minCueTravel,
-  hitDistance,
-  tracePath,
-} from '../src/shots';
-import {
-  INTERMEDIATE,
-  powerFactor,
-  routeReliability,
-  drawRailFactor,
-} from '../src/skill';
+import { ShotType, shotGeometry } from '../src/shots';
+import { INTERMEDIATE, routeReliability } from '../src/skill';
+import { routeCandidates } from '../src/route';
 import { expectedNextPot, solve } from '../src/solver';
 import { zoneContext } from '../src/zone';
 
@@ -44,28 +33,20 @@ describe('golden: easy short 8 ball, 9 far up-table (2026-06-12 round 10)', () =
   const pocket = pocketById('BL');
   const cue = vec(39.7, 31.5); // ~16 deg cut, ~20" cue-to-ghost: easy + short
 
-  /** Best route value e = expectedNextPot * ease over travel, expandPass math. */
+  /** Best route value with the same candidates and pricing as the solver. */
   function bestRoute(type: ShotType) {
     const g = shotGeometry(cue, ball8, pocket)!;
     const zones = POCKETS.map((p) => zoneContext(ball9, p, [])).filter(
       (z) => z.ballPathClear,
     );
-    const dir = departureDir(g, type)!;
-    const rel = routeReliability(type, g.dCueGhost, INTERMEDIATE);
+    const targets = zones.map(zc => ({ pocket: zc.pocket, zc, zcPot: zc }));
     let best = { e: 0, landing: g.ghost };
-    for (let travel = Math.max(2, minCueTravel(g, type)); travel <= 120; travel += 2) {
-      const tr = tracePath(g.ghost, dir, travel, [ball9], { maxRails: 4 });
-      if (tr.outcome !== 'ok') continue;
-      const firstSeg = tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
-      const railFac = tr.rails === 0 ? 1 : drawRailFactor(type, firstSeg, INTERMEDIATE);
-      const ease =
-        rel * railFac * powerFactor(hitDistance(g, type, travel), INTERMEDIATE);
-      for (const zc of zones) {
-        const e =
-          expectedNextPot(g.ghost, dir, travel, type, tr.rails, [ball9], zc,
-            INTERMEDIATE, g.dCueGhost, { g, pocket }) * ease;
-        if (e > best.e) best = { e, landing: tr.end };
-      }
+    for (const c of routeCandidates(g, [ball9], targets, INTERMEDIATE, true)) {
+      if (c.type !== type) continue;
+      const e = expectedNextPot(g.ghost, c.dir, c.travel, type, c.rails, [ball9],
+        c.zc, INTERMEDIATE, g.dCueGhost, { g, pocket }, undefined, false, c.sidespin) *
+        c.ease * c.windowFactor;
+      if (e > best.e) best = { e, landing: c.landing };
     }
     return best;
   }
@@ -73,12 +54,10 @@ describe('golden: easy short 8 ball, 9 far up-table (2026-06-12 round 10)', () =
   it('maximum draw beats the timid touch of low, landing well closer to the 9', () => {
     const draw = bestRoute('draw');
     const lowTouch = bestRoute('lowTouch');
-    expect(draw.e).toBeGreaterThan(1.05 * lowTouch.e); // clear of the tie-break
-    // Well closer than the round-10 timid touch (54" out). Since the comfort
-    // knee moved to 300" (round 20) the touch of low can afford the deep
-    // landing too, so the closeness is asserted absolutely, not against it —
-    // the e comparison above still picks draw as the better play.
-    expect(dist(draw.landing, ball9)).toBeLessThan(45);
+    expect(draw.e).toBeGreaterThan(1.02 * lowTouch.e); // clear of the tie-break
+    // Both strokes can reach deep into the window. Full draw still wins
+    // after pricing physical hit power, pot speed, and window margin.
+    expect(dist(draw.landing, ball9)).toBeLessThan(50);
     // aggressive, but with margin: never on top of the 9
     expect(dist(draw.landing, ball9)).toBeGreaterThan(10);
   });

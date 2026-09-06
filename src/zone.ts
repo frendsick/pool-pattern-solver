@@ -10,6 +10,7 @@ import {
   ShotType,
   shotGeometry,
   minCueTravel,
+  isStraight,
   tracePath,
   caromLocus,
   cuePathClear,
@@ -22,6 +23,7 @@ import {
   distanceSigma,
   potProbability,
   routeReliability,
+  routeEase,
   walkExit,
 } from './skill';
 
@@ -179,7 +181,6 @@ export function proximity(d: number): number {
 const CONTROL_SAT = 0.6;
 const CONTROL_STEP = 5;
 const CONTROL_RANGE = 120;
-const STRAIGHT_CUT = (9 * Math.PI) / 180;
 
 function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
   if (z.nextValue) return z.nextValue(p);
@@ -209,18 +210,18 @@ function bestNextValue(p: Vec, z: ZoneContext, skill: SkillProfile): number {
 function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): number {
   const sat = (v: number) => Math.min(1, v / CONTROL_SAT);
   let best = 0;
-  if (g.cut < STRAIGHT_CUT) {
+  if (isStraight(g)) {
     // The stop exit drifts along the aim line with cue-to-ball distance
     // (stopDrift) — same kill-drift the routes price: average the next value
     // over the drift spread, with forward creep into the mouth a scratch.
     const sig = distanceSigma('stop', 0.5, 0, skill, g.dCueGhost);
     let v = 0;
     for (let i = 0; i < DIST_NODES.length; i++) {
-      const p = add(g.ghost, scale(g.aim, DIST_NODES[i] * sig));
-      const scratched = dist(p, z.pocket.captureCenter) < z.pocket.captureRadius;
-      v += DIST_WEIGHTS[i] * (scratched ? 0 : bestNextValue(p, z, skill));
+      const drift = DIST_NODES[i] * sig;
+      const tr = tracePath(g.ghost, scale(g.aim, Math.sign(drift)), Math.abs(drift), z.obstacles);
+      v += DIST_WEIGHTS[i] * (tr.outcome === 'ok' ? bestNextValue(tr.end, z, skill) : 0);
     }
-    best = sat(v) * skill.typeReliability.stop;
+    best = sat(v) * routeEase(g, 'stop', 0, 0, 0, null, skill);
   }
   for (const type of ['follow', 'stun', 'lowTouch', 'draw'] as ShotType[]) {
     // Exit landings walked along the landing locus (caromLocus): the carom
@@ -250,6 +251,8 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
         continue; // still below the pot-forced minimum travel
       }
       priced = true;
+      // Past minimum pace, power and rail costs can only reduce this exit's ease.
+      if (forced * st.ease <= best) break;
       const v = sat(bestNextValue(st.point, z, skill)) * forced * st.ease;
       if (v > best) best = v;
       if (best >= cap - 1e-9) break; // this exit is saturated
@@ -270,7 +273,7 @@ function cachedOnwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfil
   const side = cross(g.aim, g.cueDir) >= 0 ? 1 : 0;
   const cutB = Math.round(g.cut * (360 / Math.PI));
   const distB = Math.min(63, Math.round(g.dCueGhost / 4));
-  const key = side * 65536 + cutB * 64 + distB;
+  const key = (isStraight(g) ? 131072 : 0) + side * 65536 + cutB * 64 + distB;
   const memo = (z.controlMemo ??= new Map());
   const hit = memo.get(key);
   if (hit !== undefined) return hit;
