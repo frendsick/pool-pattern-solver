@@ -106,6 +106,7 @@ export function zoneTargets(
   m: number,
   surfaces: (ValueSurface | null)[],
   skill: SkillProfile,
+  mode: SearchMode = 'full',
 ): ZoneTarget[] {
   const nextBall = balls[m];
   const { obstacles, gate } = zoneInputsForBall(balls, m, surfaces);
@@ -113,7 +114,8 @@ export function zoneTargets(
   for (const pocket of POCKETS) {
     const zc = zoneContext(nextBall.pos, pocket, obstacles, [], gate);
     if (!zc.ballPathClear) continue;
-    if (zonePeak(zc, skill) <= 0) continue;
+    // Full search keeps its calibrated memo warm-up. Screening only needs proposals.
+    if (mode === 'full' && zonePeak(zc, skill) <= 0) continue;
     found.push({ pocket, zc, zcPot: zoneContext(nextBall.pos, pocket, obstacles) });
   }
   return found;

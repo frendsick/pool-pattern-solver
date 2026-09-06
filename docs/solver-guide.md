@@ -363,7 +363,11 @@ and position expectation:
   full value. Its travel ramp controls how fast the in-window route wins.
 - `LANDING_RAIL_INSET`: strict-pass clearance from awkward rail-band landings.
 - `SCRATCH_MARGIN`: near-pocket scratch-risk margin.
-- `zoneTargets`: which pockets are eligible for the next ball.
+- `zoneTargets`: which pockets are eligible for the next ball. Full search
+  pre-scans each open pocket's window for a positive peak. This also warms the
+  quantized onward-control memo in the calibrated sample order. Screening
+  skips that scan and lets candidate scoring reject unusable landings. Its
+  estimates can change, but full validation retains the normal window checks.
 - `routeCandidates`: stop/follow/stun/low/draw candidate enumeration. Nonzero
   sidespin is a fallback axis for a type/target when the no-spin route has no
   usable sample. It carries no modeled benefit before a cushion, and final-ball
