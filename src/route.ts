@@ -56,6 +56,9 @@ import { ValueSurface, zoneInputsForBall } from './value';
 
 export const MAX_ROUTE = 220;
 export const WALK_STEP = 2.0;
+/** Screening ranks layouts. Returned puzzles always use the full search. */
+export type SearchMode = 'full' | 'screen';
+const SCREEN_WALK_STEP = 6;
 const ZONE_VMIN = 0.15;
 const SIMPLE_ROUTE_MAX_TRAVEL = 30;
 // A long multi-rail path running along a narrow lobe still needs lateral
@@ -253,6 +256,7 @@ function samplePath(
   obstacles: Vec[],
   skill: SkillProfile,
   exactCurves = false,
+  mode: SearchMode = 'full',
 ): RouteSample[] | null {
   const locus = caromLocus(g, type);
   if (!locus) return null;
@@ -262,13 +266,14 @@ function samplePath(
     maxRails: 3,
     sidespin,
   });
-  if ((exactCurves || tr.rails > 0 || tr.outcome !== 'ok') && caromCurve(g, type, MAX_ROUTE)) {
+  if (mode === 'full' && (exactCurves || tr.rails > 0 || tr.outcome !== 'ok') && caromCurve(g, type, MAX_ROUTE)) {
     return exactCurveSamples(g, type, sidespin, dir, obstacles, skill);
   }
   const firstSeg =
     tr.points.length > 2 ? dist(tr.points[0], tr.points[1]) : null;
   return Array.from(walkExit(
-    tr.points, locus.eta, firstSeg, g, type, sidespin, skill, WALK_STEP, true,
+    tr.points, locus.eta, firstSeg, g, type, sidespin, skill,
+    mode === 'screen' ? SCREEN_WALK_STEP : WALK_STEP, true,
   ));
 }
 
@@ -690,6 +695,7 @@ export function routeCandidates(
   targets: ZoneTarget[],
   skill: SkillProfile,
   lenient: boolean,
+  mode: SearchMode = 'full',
 ): RouteLanding[] {
   const out: RouteLanding[] = [];
   const stoppable = isStraight(g);
@@ -699,7 +705,7 @@ export function routeCandidates(
   const samplesForTarget = (type: ShotType, sidespin: Sidespin, zc: ZoneContext) => {
     const key = `${type}:${sidespin}`;
     if (!paths.has(key)) {
-      paths.set(key, samplePath(g, type, sidespin, obstacles, skill, lenient));
+      paths.set(key, samplePath(g, type, sidespin, obstacles, skill, lenient, mode));
     }
     const path = paths.get(key);
     return path ? scoreSamples(path, sidespin, zc, skill) : null;

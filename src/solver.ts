@@ -19,15 +19,15 @@ import {
   shotGeometry,
   traceShot,
 } from './shots';
-import { SkillProfile, potPaceFactor } from './skill';
+import { SkillProfile, perturbSamples, potPaceFactor } from './skill';
 import {
   ZoneContext,
   zoneBar,
   zoneContext,
   zoneValue,
 } from './zone';
-import { ValueSurface, surfacesForLayout, zoneInputsForBall } from './value';
-import type { RouteLanding, ZoneTarget } from './route';
+import { ValueSurface, buildSurfaces, surfacesForLayout, zoneInputsForBall } from './value';
+import type { RouteLanding, SearchMode, ZoneTarget } from './route';
 import {
   clearanceRisk,
   expectedNextPot,
@@ -89,6 +89,11 @@ export interface Pattern {
 
 const BEAM = 40;
 const EVAL_CAP = 130;
+const SCREEN_BEAM = 8;
+const SCREEN_EVAL_CAP = 32;
+const SCREEN_GRID_STEP = 3;
+// Rounded quadrature weights sum to slightly more than one.
+const POSITION_WEIGHT_SUM = perturbSamples(0, 0).reduce((sum, sample) => sum + sample.weight, 0);
 
 interface PendingShot {
   ball: Ball;
@@ -171,10 +176,11 @@ export function expandNodes(
   m: number,
   surfaces: (ValueSurface | null)[],
   skill: SkillProfile,
+  mode: SearchMode = 'full',
 ): Node[] {
   const targets = zoneTargets(balls, m, surfaces, skill);
   const { obstacles: laterPos } = zoneInputsForBall(balls, m, surfaces);
-  return expandToTargets(nodes, balls[m], laterPos, targets, skill);
+  return expandToTargets(nodes, balls[m], laterPos, targets, skill, mode);
 }
 
 function expandPass(
@@ -184,18 +190,19 @@ function expandPass(
   targets: ZoneTarget[],
   skill: SkillProfile,
   lenient: boolean,
+  mode: SearchMode,
 ): Node[] {
   const obstacles = [nextBall.pos, ...laterPos];
   const candidates: RouteCandidate[] = [];
   for (const node of nodes) {
-    for (const l of routeCandidates(node.pending.g, obstacles, targets, skill, lenient)) {
+    for (const l of routeCandidates(node.pending.g, obstacles, targets, skill, lenient, mode)) {
       candidates.push({ ...l, node, proxy: node.score * l.merit });
     }
   }
   candidates.sort((a, b) => b.proxy - a.proxy);
 
   const children: Node[] = [];
-  for (const c of candidates.slice(0, EVAL_CAP)) {
+  for (const c of candidates.slice(0, mode === 'screen' ? SCREEN_EVAL_CAP : EVAL_CAP)) {
     // P(reach the zone) compounds the landing spread (carom-direction
     // sensitivity included: a natural-angle follow's carom is easy to
     // direct, a long stun's or draw's is not) with the route's ease — type
@@ -261,7 +268,7 @@ function expandPass(
     });
   }
   sortChildren(children);
-  return children.slice(0, BEAM);
+  return children.slice(0, mode === 'screen' ? SCREEN_BEAM : BEAM);
 }
 
 
@@ -325,6 +332,7 @@ function finalize(
   skill: SkillProfile,
   surfaces: (ValueSurface | null)[],
   explainFirstAsHand = true,
+  mode: SearchMode = 'full',
 ): Pattern | null {
   for (const node of nodes) {
     const p = node.pending;
@@ -358,6 +366,7 @@ function finalize(
     const score = node.score * safe.noScratch *
       potPaceFactor(safe.g, safe.type, safe.powerTravel, skill);
     const shots = [...node.done, last];
+    if (mode === 'screen') return { shots, score };
     resolveShotZones(shots, balls, firstBallIndex, skill, surfaces);
     for (let i = 0; i < shots.length; i++) {
       shots[i].explanation = explainShot(
@@ -407,9 +416,10 @@ function expandToTargets(
   laterPos: Vec[],
   targets: ZoneTarget[],
   skill: SkillProfile,
+  mode: SearchMode = 'full',
 ): Node[] {
   for (const lenient of [false, true]) {
-    const children = expandPass(nodes, nextBall, laterPos, targets, skill, lenient);
+    const children = expandPass(nodes, nextBall, laterPos, targets, skill, lenient, mode);
     if (children.length > 0 || lenient) return children;
   }
   return [];
@@ -456,11 +466,28 @@ export function previewLegFromCue(
   return best;
 }
 
-export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
+/** Full search, with an optional score floor for generation's best-so-far cutoff. */
+export function solve(layout: Layout, skill: SkillProfile, minimumScore = 0): Pattern | null {
   // Backward pass first (value.ts): V_k surfaces from the 9 down, so every
   // zone the forward beam search measures against already carries the chain
   // of requirements of the balls after it.
   const surfaces = surfacesForLayout(layout, skill);
+  return searchLayout(layout, skill, surfaces, 'full', minimumScore);
+}
+
+/** Cheap ordering hint. Coarse grids stay outside the full-solve surface cache. */
+export function screenLayout(layout: Layout, skill: SkillProfile): number {
+  const surfaces = buildSurfaces(layout.balls, skill, SCREEN_GRID_STEP);
+  return searchLayout(layout, skill, surfaces, 'screen', 0)?.score ?? 0;
+}
+
+function searchLayout(
+  layout: Layout,
+  skill: SkillProfile,
+  surfaces: (ValueSurface | null)[],
+  mode: SearchMode,
+  minimumScore: number,
+): Pattern | null {
   // Ball-in-hand placement may be engineered against the SECOND ball's shot
   // lines (shotline-aligned seeds): hand the next zone targets to the seeder.
   const nextTargets =
@@ -468,8 +495,10 @@ export function solve(layout: Layout, skill: SkillProfile): Pattern | null {
   let nodes = initialNodes(layout, skill, surfaces, nextTargets);
   if (nodes.length === 0) return null;
   for (let k = 1; k < layout.balls.length; k++) {
-    nodes = expandNodes(nodes, layout.balls, k, surfaces, skill);
-    if (nodes.length === 0) return null;
+    nodes = expandNodes(nodes, layout.balls, k, surfaces, skill, mode);
+    const remainingFactor = POSITION_WEIGHT_SUM ** (layout.balls.length - 1 - k);
+    if (nodes.length === 0 || nodes.every(node => node.score * remainingFactor < minimumScore)) return null;
   }
-  return finalize(nodes, layout.balls, 0, skill, surfaces);
+  const pattern = finalize(nodes, layout.balls, 0, skill, surfaces, true, mode);
+  return pattern && pattern.score >= minimumScore ? pattern : null;
 }

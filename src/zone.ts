@@ -251,6 +251,8 @@ function onwardControl(g: ShotGeometry, z: ZoneContext, skill: SkillProfile): nu
         continue; // still below the pot-forced minimum travel
       }
       priced = true;
+      // Past minimum pace, power and rail costs can only reduce this exit's ease.
+      if (forced * st.ease <= best) break;
       const v = sat(bestNextValue(st.point, z, skill)) * forced * st.ease;
       if (v > best) best = v;
       if (best >= cap - 1e-9) break; // this exit is saturated

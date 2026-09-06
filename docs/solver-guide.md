@@ -33,9 +33,11 @@ The runtime flow is:
    fixed skill profile.
 2. [src/generator.worker.ts](../src/generator.worker.ts) runs
    [src/generator.ts](../src/generator.ts) off the main thread. It
-   rejection-samples object-ball layouts and calls the solver. A generated
-   puzzle is accepted only after a complete pattern is found, with fallback
-   to the best sampled pattern.
+   samples object-ball layouts and calls the solver. Larger layouts are
+   screened in batches, then fully solved in estimated-quality order. Small
+   layouts go directly to the full solver. A generated puzzle is accepted
+   only after a complete full-search pattern is found, with fallback to the
+   best sampled full-search pattern.
    [src/generation.ts](../src/generation.ts) sends the resolved pattern and
    backward grids to the UI, then restores the zone lookup functions and
    surface cache without another backward pass. A new request terminates the
@@ -260,7 +262,8 @@ shot and what window is drawn:
   onward route stays full-table from the next ball.
 - `CONTROL_SAT`: value threshold where onward control saturates.
 - `CONTROL_STEP` and `CONTROL_RANGE`: scan resolution and reach for onward
-  control exits.
+  control exits. Once minimum pace is met, the scan stops when its decreasing
+  route ease cannot improve the best control value already found.
 - `ZONE_RELATIVE` and `ZONE_FLOOR`: quality bar (the in-bar "core") for a point
   to count inside a zone.
 - `zonePeak`, `zoneBar`, and `zonePolygons`/`buildWindows`: the peak-value
@@ -294,7 +297,8 @@ These parameters and formulas control the backward pass from the last ball:
 
 - `GRID_STEP`: raster pitch for value surfaces.
 - `buildSurfaces`: builds one surface per future ball, normalized to its own
-  peak.
+  peak. Screening supplies a coarser pitch and does not populate the full
+  solver's per-layout cache.
 - `gateFor`: selects the surface used to gate the previous ball's zone.
 - `surfacesForLayout`: per-layout cache shared by solver and renderer.
 - `zoneInputsForBall`: the single source of the rule "a ball's Position Zone
@@ -337,6 +341,10 @@ and position expectation:
 
 - `MAX_ROUTE`: maximum cue-ball travel explored for a route.
 - `WALK_STEP`: sampling interval along route paths.
+- `SearchMode` and `SCREEN_WALK_STEP`: screening uses a coarse locus walk
+  to propose landings. Full search keeps the exact curved-route samples.
+  Selected landings and uncertainty samples still use `traceShot` in either
+  mode. Screening scores are ordering hints, never accepted puzzle scores.
 - `ZONE_VMIN`: minimum effective value while identifying usable path runs.
 - `SIMPLE_ROUTE_MAX_TRAVEL`: maximum no-rail stop/stun/low/draw travel that
   can count as the simple baseline when pricing redundant long rail-follow.
@@ -404,6 +412,16 @@ These parameters affect global pattern selection:
 
 - `BEAM`: number of nodes retained per layer.
 - `EVAL_CAP`: number of route candidates fully evaluated per expansion pass.
+- `SCREEN_BEAM`, `SCREEN_EVAL_CAP`, and `SCREEN_GRID_STEP`: search width,
+  candidate evaluation limit, and backward-grid pitch used by `screenLayout`.
+  This lower-cost search only orders generation candidates. Its grids and
+  zone memos remain separate from full solves and displayed windows. It checks
+  final-shot safety but skips display-window resolution and explanations.
+- `solve`'s optional minimum score: generation's best completed pattern is
+  a lower bound worth improving. `POSITION_WEIGHT_SUM` accounts for the small
+  excess in rounded quadrature weights when bounding the remaining legs.
+  A beam whose score ceiling is entirely below the bound can stop early.
+  Calls without the bound keep the full search behavior.
 - `TYPE_RANK`: private complexity ordering by shot type.
 - `complexityDiscount`: sort-key-only tie-break for simpler routes.
 - `alignBoost`: sort-key-only preference for routes entering along the next
@@ -438,6 +456,12 @@ These parameters control what problems the solver is asked to solve:
 - Per-ball placement attempt limit inside `randomPositions`.
 - `MIN_SCORE_PER_SHOT`: generated-layout acceptance bar, scaled by ball count.
 - `MAX_TRIES`: rejection-sampling budget.
+- `SCREEN_MIN_BALLS` and `SCREEN_BATCH_SIZE`: the ball-count threshold for
+  screening and the number of feasible layouts ranked together. Screening
+  changes candidate order only. Even a zero estimate remains eligible for
+  full solving, and exhausting the sample budget still returns the best
+  full-search pattern found. Candidate ordering can change the layout selected
+  for an existing seed, but repeated generation remains deterministic.
 - `quickFeasible`: cheap per-turn pocket-line precheck.
 - `mulberry32`: deterministic PRNG used for seed reproducibility.
 - Remaining-ball numbering derived from `ballCount`.

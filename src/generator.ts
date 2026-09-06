@@ -5,7 +5,7 @@
 import { dist, vec, Vec } from './geometry';
 import { Ball, FOOT_SPOT, Layout, MIN_X, MAX_X, MIN_Y, MAX_Y, POCKETS } from './table';
 import { SkillProfile } from './skill';
-import { solve, Pattern } from './solver';
+import { solve, screenLayout, Pattern } from './solver';
 import { ballPathToPocketClear } from './shots';
 
 const CUSHION_MARGIN = 2.5;
@@ -21,6 +21,8 @@ const NINE_SPOT_RADIUS = 6;
 // balls (rejecting nearly every layout) but only ~0.49/shot at 3.
 const MIN_SCORE_PER_SHOT = 0.7;
 const MAX_TRIES = 300;
+const SCREEN_MIN_BALLS = 6;
+const SCREEN_BATCH_SIZE = 8;
 
 /** Deterministic PRNG so layouts are reproducible from their seed. */
 export function mulberry32(seed: number): () => number {
@@ -95,16 +97,26 @@ export function generatePuzzle(
   const minScore = MIN_SCORE_PER_SHOT ** ballCount;
 
   let best: GeneratedPuzzle | null = null;
-  for (let t = 0; t < MAX_TRIES; t++) {
-    const positions = randomPositions(rng, ballCount, nineIndex);
-    if (!positions) continue;
-    const balls: Ball[] = numbers.map((num, i) => ({ num, pos: positions[i] }));
-    if (!quickFeasible(balls)) continue;
-    const layout: Layout = { balls, seed };
-    const pattern = solve(layout, skill);
-    if (!pattern) continue;
-    if (pattern.score >= minScore) return { layout, pattern };
-    if (!best || pattern.score > best.pattern.score) best = { layout, pattern };
+  const batchSize = ballCount >= SCREEN_MIN_BALLS ? SCREEN_BATCH_SIZE : 1;
+  for (let tries = 0; tries < MAX_TRIES;) {
+    const batch: { layout: Layout; estimate: number }[] = [];
+    while (batch.length < batchSize && tries < MAX_TRIES) {
+      tries++;
+      const positions = randomPositions(rng, ballCount, nineIndex);
+      if (!positions) continue;
+      const balls: Ball[] = numbers.map((num, i) => ({ num, pos: positions[i] }));
+      if (!quickFeasible(balls)) continue;
+      const layout: Layout = { balls, seed };
+      batch.push({ layout, estimate: batchSize > 1 ? screenLayout(layout, skill) : 0 });
+    }
+    // Screening changes order only. A weak estimate cannot discard a layout.
+    batch.sort((a, b) => b.estimate - a.estimate);
+    for (const { layout } of batch) {
+      const pattern = solve(layout, skill, best?.pattern.score ?? 0);
+      if (!pattern) continue;
+      if (pattern.score >= minScore) return { layout, pattern };
+      if (!best || pattern.score > best.pattern.score) best = { layout, pattern };
+    }
   }
   return best; // fall back to the best sub-threshold layout rather than fail
 }

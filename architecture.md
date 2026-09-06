@@ -189,14 +189,19 @@ generatePuzzle(seed, ballCount, skill)                          [generator.ts]
    repeat up to MAX_TRIES:
        positions = randomPositions(...)        reject overlaps/cushion/pocket
        quickFeasible(balls)?                    cheap reachability prefilter
-       pattern = solve(layout, skill)           ← full solver above
-       if pattern.score ≥ minScore: return      (minScore = perShot ^ ballCount)
-       else keep best-so-far
+       for larger layouts, collect a batch and rank with screenLayout
+       for each layout in estimated-quality order:
+           pattern = solve(layout, skill, bestScore)  ← full solver above
+           if pattern.score ≥ minScore: return       (minScore = perShot ^ ballCount)
+           else keep best-so-far
    return best                                  never fail: degrade to best sub-threshold
 ```
 
 A Layout is only ever shown to the player if the solver found a complete Pattern for
 it. The 9 is biased toward the foot spot (it racks center and rarely gets cleanly hit).
+Screening uses a smaller beam, coarser grids, and coarse route proposals. Its score
+only orders candidates. Full validation uses the normal search and separate cached
+grids. A beam whose probability ceiling is below the best completed pattern can stop.
 
 ---
 
