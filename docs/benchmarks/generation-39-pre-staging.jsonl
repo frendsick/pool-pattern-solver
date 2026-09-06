@@ -1,0 +1,2 @@
+{"runtime":"v24.14.1","platform":"linux","release":"6.18.33.2-microsoft-standard-WSL2","cpu":"AMD Ryzen 7 3700X 8-Core Processor","seeds":[2024],"ballCounts":[9],"runs":3}
+{"ballCount":9,"seed":2024,"screens":0,"refinements":0,"fullSolves":8,"score":0.050781894123180835,"threshold":0.04035360699999998,"fallback":false,"fingerprint":"1eaf91a5cbfd74c7","medianMs":35843.858999000004,"p95Ms":36210.204613999995,"times":[35479.582815999995,35843.858999000004,36210.204613999995]}

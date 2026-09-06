@@ -178,7 +178,7 @@ export function expandNodes(
   skill: SkillProfile,
   mode: SearchMode = 'full',
 ): Node[] {
-  const targets = zoneTargets(balls, m, surfaces, skill);
+  const targets = zoneTargets(balls, m, surfaces, skill, mode);
   const { obstacles: laterPos } = zoneInputsForBall(balls, m, surfaces);
   return expandToTargets(nodes, balls[m], laterPos, targets, skill, mode);
 }
@@ -491,7 +491,7 @@ function searchLayout(
   // Ball-in-hand placement may be engineered against the SECOND ball's shot
   // lines (shotline-aligned seeds): hand the next zone targets to the seeder.
   const nextTargets =
-    layout.balls.length > 1 ? zoneTargets(layout.balls, 1, surfaces, skill) : [];
+    layout.balls.length > 1 ? zoneTargets(layout.balls, 1, surfaces, skill, mode) : [];
   let nodes = initialNodes(layout, skill, surfaces, nextTargets);
   if (nodes.length === 0) return null;
   for (let k = 1; k < layout.balls.length; k++) {

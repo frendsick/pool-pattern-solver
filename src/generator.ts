@@ -85,10 +85,17 @@ export interface GeneratedPuzzle {
   pattern: Pattern;
 }
 
+/** Optional counters, accumulated across calls for generation benchmarks. */
+export interface GenerationStats {
+  screens: number;
+  fullSolves: number;
+}
+
 export function generatePuzzle(
   seed: number,
   ballCount: number,
   skill: SkillProfile,
+  stats?: GenerationStats,
 ): GeneratedPuzzle | null {
   const rng = mulberry32(seed);
   // With N balls left in 9-ball, the remaining numbers are (10-N)..9.
@@ -107,11 +114,13 @@ export function generatePuzzle(
       const balls: Ball[] = numbers.map((num, i) => ({ num, pos: positions[i] }));
       if (!quickFeasible(balls)) continue;
       const layout: Layout = { balls, seed };
+      if (stats && batchSize > 1) stats.screens++;
       batch.push({ layout, estimate: batchSize > 1 ? screenLayout(layout, skill) : 0 });
     }
     // Screening changes order only. A weak estimate cannot discard a layout.
     batch.sort((a, b) => b.estimate - a.estimate);
     for (const { layout } of batch) {
+      if (stats) stats.fullSolves++;
       const pattern = solve(layout, skill, best?.pattern.score ?? 0);
       if (!pattern) continue;
       if (pattern.score >= minScore) return { layout, pattern };

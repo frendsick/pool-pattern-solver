@@ -12,10 +12,12 @@ it('uses full scores for acceptance and retains layouts with weak screening esti
   screen.mockReturnValue(0).mockReturnValueOnce(1);
   // The optimistic screen fails full validation. A zero estimate remains eligible.
   full.mockReturnValueOnce(null).mockReturnValue({ shots: [], score: 0.5 });
-  const puzzle = generatePuzzle(2024, 9, INTERMEDIATE)!;
+  const stats = { screens: 0, fullSolves: 0 };
+  const puzzle = generatePuzzle(2024, 9, INTERMEDIATE, stats)!;
   expect(full).toHaveBeenCalledTimes(2);
   expect(puzzle.layout).toBe(full.mock.calls[1][0]);
   expect(puzzle.pattern.score).toBe(0.5);
+  expect(stats).toEqual({ screens: screen.mock.calls.length, fullSolves: 2 });
 });
 
 it('keeps the best full-score fallback when no candidate reaches the quality bar', () => {
