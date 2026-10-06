@@ -12,14 +12,3 @@ for preserved design decisions.
 
 See [architecture.md](./architecture.md) for how the modules fit together
 (the module map, layering, and data flow).
-
-## General Instructions
-
-- Never mention Claude or AI usage
-
-## Agent skills
-
-Always load the relevant doc when the matching workflow comes up:
-
-- Git: [docs/agents/git.md](docs/agents/git.md)
-- Review: [docs/agents/review.md](docs/agents/review.md)
